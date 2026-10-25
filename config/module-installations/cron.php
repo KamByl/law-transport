@@ -17,11 +17,6 @@ return [
                 'type' => 'select',
                 'options' => [
                     'email_queue' => 'Kolejka e-maili',
-                    'winner_post_create_queue' => 'Przetwarzanie zwycięzców po imporcie',
-                    'graphic_codes_import' => 'Import kodów graficznych z katalogu',
-                    'winner_deferred_code_assignment' => 'Przydzielanie dostępnych kodów oczekującym zwycięzcom',
-                    'scratchcards_reminder' => 'Przypomnienie o zdrapkach',
-                    'ai_receipt_check' => 'AI - sprawdzanie paragonów zwycięzców',
                     'error_summary' => 'Podsumowanie błędów',
                     'ftp_media_offload' => 'Przenoszenie mediów na FTP',
                 ],

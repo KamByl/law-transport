@@ -43,11 +43,11 @@ class ModuleDeleteController extends ModuleController
         }
 
         $connection = $this->entityManager->getConnection();
-        $deleteRelatedLotteryItems = $request->request->getBoolean('delete_related_lottery_items');
+        $deleteRelated = $request->request->getBoolean('delete_related_items');
 
         $deleteActionController = $this->resolveDeleteActionController($moduleKey);
         if ($deleteActionController !== null) {
-            $deleteActionController->beforeDelete($moduleKey, $id, $definition, $deleteRelatedLotteryItems);
+            $deleteActionController->beforeDelete($moduleKey, $id, $definition, $deleteRelated);
         }
 
         $connection->delete($table, [$primaryKey => $id]);

@@ -199,7 +199,6 @@ class SystemSettingsProvider
         ];
     }
 
-
     /**
      * @return array{enabled: bool, retry_delay_seconds: int, max_attempts: int, blocked_domains: string[]}
      */
@@ -250,49 +249,6 @@ class SystemSettingsProvider
         ];
     }
 
-    /**
-     * @return array{
-     *     enabled: bool,
-     *     site_key: string,
-     *     secret_key: string,
-     *     use_enterprise: bool,
-     *     enterprise_project_id: string,
-     *     enterprise_api_key: string
-     * }
-     */
-    public function getRecaptchaConfig(): array
-    {
-        $settings = $this->getSettings();
-
-        return [
-            'enabled' => filter_var($settings['recaptcha_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
-            'site_key' => trim((string) ($settings['recaptcha_site_key'] ?? '')),
-            'secret_key' => trim((string) ($settings['recaptcha_secret_key'] ?? '')),
-            'use_enterprise' => filter_var($settings['recaptcha_use_enterprise'] ?? false, FILTER_VALIDATE_BOOLEAN),
-            'enterprise_project_id' => trim((string) ($settings['recaptcha_enterprise_project_id'] ?? '')),
-            'enterprise_api_key' => trim((string) ($settings['recaptcha_enterprise_api_key'] ?? '')),
-        ];
-    }
-
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function getCookieManagerSettings(): array
-    {
-        $settings = $this->getModuleSettings('cookie_manager');
-        $privacyPolicyValue = trim((string) ($settings['privacy_policy_url'] ?? ''));
-
-        if ($privacyPolicyValue !== '' && !preg_match('#^(?:[a-z][a-z0-9+.-]*:)?//#i', $privacyPolicyValue)) {
-            $resolvedPrivacyPolicyUrl = $this->resolvePrettyFileUrlById($privacyPolicyValue);
-            if ($resolvedPrivacyPolicyUrl !== null) {
-                $settings['privacy_policy_url'] = $resolvedPrivacyPolicyUrl;
-            }
-        }
-
-        return $settings;
-    }
-
     private function resolveTableName(string $moduleKey): ?string
     {
         foreach ($this->definitionLoader->getInstallDefinitions() as $definition) {
@@ -310,93 +266,4 @@ class SystemSettingsProvider
         return null;
     }
 
-    private function resolvePrettyFileUrlById(string $fileId): ?string
-    {
-        $table = $this->resolveTableName('pliki');
-        if ($table === null) {
-            return null;
-        }
-
-        $connection = $this->entityManager->getConnection();
-        $schemaManager = $connection->createSchemaManager();
-        if (!$schemaManager->tablesExist([$table])) {
-            return null;
-        }
-
-        $entries = $connection
-            ->createQueryBuilder()
-            ->select('*')
-            ->from($table)
-            ->orderBy('id', 'asc')
-            ->executeQuery()
-            ->fetchAllAssociative();
-
-        $seenSlugs = [];
-        foreach ($entries as $entry) {
-            $entryId = trim((string) ($entry['id'] ?? ''));
-            $relativePath = trim((string) ($entry['plik'] ?? ''));
-            if ($entryId === '' || $relativePath === '') {
-                continue;
-            }
-
-            $slug = $this->buildPrettyFileSlug($entry, $seenSlugs);
-            if ($entryId === $fileId) {
-                return '/pliki/' . $slug;
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * @param array<string, mixed> $fileEntry
-     * @param array<string, int> $seenSlugs
-     */
-    private function buildPrettyFileSlug(array $fileEntry, array &$seenSlugs): string
-    {
-        $relativePath = trim((string) ($fileEntry['plik'] ?? ''));
-        $path = (string) parse_url($relativePath, PHP_URL_PATH);
-        $extension = mb_strtolower(pathinfo($path, PATHINFO_EXTENSION));
-
-        $nameFromCms = trim((string) ($fileEntry['nazwa'] ?? ''));
-        $fallbackName = pathinfo($path, PATHINFO_FILENAME);
-        $baseName = $this->slugify($nameFromCms !== '' ? $nameFromCms : (string) $fallbackName);
-        if ($baseName === '') {
-            $baseName = 'plik';
-        }
-
-        $candidate = $baseName;
-        if ($extension !== '') {
-            $candidate .= '.' . $extension;
-        }
-
-        $occurrences = ($seenSlugs[$candidate] ?? 0) + 1;
-        $seenSlugs[$candidate] = $occurrences;
-        if ($occurrences <= 1) {
-            return $candidate;
-        }
-
-        if ($extension === '') {
-            return sprintf('%s-%d', $baseName, $occurrences);
-        }
-
-        return sprintf('%s-%d.%s', $baseName, $occurrences, $extension);
-    }
-
-    private function slugify(string $value): string
-    {
-        $value = mb_strtolower(trim($value));
-        if ($value === '') {
-            return '';
-        }
-
-        $map = [
-            'ą' => 'a', 'ć' => 'c', 'ę' => 'e', 'ł' => 'l', 'ń' => 'n',
-            'ó' => 'o', 'ś' => 's', 'ż' => 'z', 'ź' => 'z',
-        ];
-        $value = strtr($value, $map);
-        $value = preg_replace('/[^a-z0-9]+/u', '-', $value) ?? '';
-
-        return trim($value, '-');
-    }
 }

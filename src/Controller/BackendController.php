@@ -323,7 +323,6 @@ class BackendController extends BaseController
             $statsPosition++;
         }
 
-
         $preferenceEntity = $this->entityManager->getRepository(DashboardPreference::class)
             ->findOneBy(['user' => $user]);
 
@@ -773,55 +772,6 @@ class BackendController extends BaseController
     }
 
     /**
-     * @param array<string, array{enabled: bool, order: int}> $preferences
-     *
-     * @return array<int, string>
-     */
-    private function sortDashboardModules(array $preferences): array
-    {
-        $keys = array_keys($preferences);
-        usort($keys, static function (string $left, string $right) use ($preferences): int {
-            return ($preferences[$left]['order'] ?? 0) <=> ($preferences[$right]['order'] ?? 0);
-        });
-
-        return array_values(array_filter($keys, static function (string $key) use ($preferences): bool {
-            return $preferences[$key]['enabled'] ?? false;
-        }));
-    }
-
-    /**
-     * @param array<string, array{enabled: bool, order: int}> $preferences
-     *
-     * @return array<int, string>
-     */
-    private function sortDashboardStats(array $preferences): array
-    {
-        $keys = array_keys($preferences);
-        usort($keys, static function (string $left, string $right) use ($preferences): int {
-            return ($preferences[$left]['order'] ?? 0) <=> ($preferences[$right]['order'] ?? 0);
-        });
-
-        return array_values(array_filter($keys, static function (string $key) use ($preferences): bool {
-            return $preferences[$key]['enabled'] ?? false;
-        }));
-    }
-
-    /**
-     * @param array<string, array{enabled: bool, order: int}> $preferences
-     *
-     * @return array<int, string>
-     */
-    private function sortDashboardKeysByOrder(array $preferences): array
-    {
-        $keys = array_keys($preferences);
-        usort($keys, static function (string $left, string $right) use ($preferences): int {
-            return ($preferences[$left]['order'] ?? 0) <=> ($preferences[$right]['order'] ?? 0);
-        });
-
-        return array_values($keys);
-    }
-
-    /**
      * @param array{modules: array<string, array{enabled: bool, order: int}>, stats: array<string, array{enabled: bool, order: int}>} $preferences
      * @param array<string, bool> $statsAvailability
      *
@@ -977,10 +927,6 @@ class BackendController extends BaseController
         }
 
         $defaultStatsStart = $firstDataAt;
-        $lotteryStatsStart = $this->resolveLotterySubmissionStatsStart($connection, $moduleKey, $today);
-        if ($lotteryStatsStart !== null) {
-            $defaultStatsStart = $lotteryStatsStart;
-        }
 
         $dayStart = $this->maxDate(
             $defaultStatsStart->setTime(0, 0),
@@ -1039,29 +985,6 @@ class BackendController extends BaseController
         ];
     }
 
-
-    private function resolveLotterySubmissionStatsStart(
-        \Doctrine\DBAL\Connection $connection,
-        string $moduleKey,
-        \DateTimeImmutable $today
-    ): ?\DateTimeImmutable {
-        if ($moduleKey !== 'loteria_zgloszenia') {
-            return null;
-        }
-
-        $settings = $this->fetchModuleEntry('loteria_ustawienia') ?? [];
-        $candidateStart = $settings['loteria_data_startu'] ?? null;
-        if (!is_scalar($candidateStart) || trim((string) $candidateStart) === '') {
-            return null;
-        }
-
-        try {
-            return new \DateTimeImmutable((string) $candidateStart);
-        } catch (\Throwable) {
-            return null;
-        }
-    }
-
     private function maxDate(\DateTimeImmutable $left, \DateTimeImmutable $right): \DateTimeImmutable
     {
         return $left >= $right ? $left : $right;
@@ -1073,34 +996,7 @@ class BackendController extends BaseController
         string $table,
         string $dateField
     ): string {
-        if ($table !== 'loteria_zwyciezcy_entries' || $dateField !== 'data_wyslania_zgloszenia') {
-            return $dateField;
-        }
-
-        $submissionDateExpression = sprintf(
-            "(SELECT NULLIF(TRIM(CAST(loteria_zgloszenia_entries.submitted_at AS CHAR)), '') FROM loteria_zgloszenia_entries WHERE loteria_zgloszenia_entries.id = %s.zgloszenie LIMIT 1)",
-            $table
-        );
-
-        try {
-            $tableDetails = $connection->createSchemaManager()->introspectTable($table);
-        } catch (\Throwable) {
-            return $submissionDateExpression;
-        }
-
-        if (!$tableDetails->hasColumn('zgloszenie')) {
-            return $submissionDateExpression;
-        }
-
-        $dateExpressions = [$submissionDateExpression];
-
-        if ($tableDetails->hasColumn('data_zgloszenia')) {
-            $dateExpressions[] = "NULLIF(TRIM(CAST(data_zgloszenia AS CHAR)), '')";
-        }
-
-        return count($dateExpressions) === 1
-            ? $dateExpressions[0]
-            : sprintf('COALESCE(%s)', implode(', ', $dateExpressions));
+        return $dateField;
     }
 
     private function fetchFirstDataDate(\Doctrine\DBAL\Connection $connection, string $table, string $dateExpression): ?\DateTimeImmutable
@@ -1129,177 +1025,7 @@ class BackendController extends BaseController
      */
     private function buildModuleStatsSeriesDefinitions(\Doctrine\DBAL\Connection $connection, string $moduleKey, string $table): array
     {
-        if ($table === 'loteria_zwyciezcy_entries') {
-            return $this->buildPrizeTypeSeriesDefinitions($connection, $table);
-        }
-
-        return $this->buildCenterSeriesDefinitions($connection, $table);
-    }
-
-    /**
-     * @return array<int, array{key: string, label: string, filters: array<string, string>}>
-     */
-    private function buildPrizeTypeSeriesDefinitions(\Doctrine\DBAL\Connection $connection, string $table): array
-    {
-        try {
-            $tableDetails = $connection->createSchemaManager()->introspectTable($table);
-        } catch (\Throwable) {
-            return [];
-        }
-
-        if (!$tableDetails->hasColumn('rodzaj_wygranej')) {
-            return [];
-        }
-
-        $usedPrizeTypeIds = $this->fetchUsedPrizeTypeIds($connection, $table);
-        if ($usedPrizeTypeIds === []) {
-            return [];
-        }
-
-        $prizeTypeMap = $this->fetchPrizeTypeLabels($connection, $usedPrizeTypeIds);
-        $seriesDefinitions = [];
-        foreach ($usedPrizeTypeIds as $prizeTypeId) {
-            $seriesDefinitions[] = [
-                'key' => 'prize_' . preg_replace('/[^a-zA-Z0-9_\-]+/', '_', (string) $prizeTypeId),
-                'label' => $prizeTypeMap[$prizeTypeId] ?? ('Nagroda ' . $prizeTypeId),
-                'filters' => ['rodzaj_wygranej' => (string) $prizeTypeId],
-            ];
-        }
-
-        return $seriesDefinitions;
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function fetchUsedPrizeTypeIds(\Doctrine\DBAL\Connection $connection, string $table): array
-    {
-        try {
-            $rows = $connection->createQueryBuilder()
-                ->select('DISTINCT rodzaj_wygranej AS prize_type_id')
-                ->from($table)
-                ->where('rodzaj_wygranej IS NOT NULL')
-                ->andWhere("TRIM(CAST(rodzaj_wygranej AS CHAR)) <> ''")
-                ->orderBy('rodzaj_wygranej', 'ASC')
-                ->executeQuery()
-                ->fetchAllAssociative();
-        } catch (\Throwable) {
-            return [];
-        }
-
-        $prizeTypeIds = [];
-        foreach ($rows as $row) {
-            $prizeTypeId = trim((string) ($row['prize_type_id'] ?? ''));
-            if ($prizeTypeId === '') {
-                continue;
-            }
-
-            $prizeTypeIds[] = $prizeTypeId;
-        }
-
-        return $prizeTypeIds;
-    }
-
-    /**
-     * @param array<int, string> $prizeTypeIds
-     *
-     * @return array<string, string>
-     */
-    private function fetchPrizeTypeLabels(\Doctrine\DBAL\Connection $connection, array $prizeTypeIds): array
-    {
-        if ($prizeTypeIds === []) {
-            return [];
-        }
-
-        try {
-            $queryBuilder = $connection->createQueryBuilder();
-            $rows = $queryBuilder
-                ->select('id', 'name')
-                ->from('rodzaje_nagrod_entries')
-                ->where($queryBuilder->expr()->in('id', ':prizeTypeIds'))
-                ->setParameter('prizeTypeIds', $prizeTypeIds, \Doctrine\DBAL\ArrayParameterType::STRING)
-                ->executeQuery()
-                ->fetchAllAssociative();
-        } catch (\Throwable) {
-            return [];
-        }
-
-        $prizeTypeMap = [];
-        foreach ($rows as $row) {
-            $prizeTypeId = trim((string) ($row['id'] ?? ''));
-            if ($prizeTypeId === '') {
-                continue;
-            }
-
-            $name = trim((string) ($row['name'] ?? ''));
-            $prizeTypeMap[$prizeTypeId] = $name !== '' ? $name : $prizeTypeId;
-        }
-
-        return $prizeTypeMap;
-    }
-
-    /**
-     * @return array<int, array{key: string, label: string, filters: array<string, string>}>
-     */
-    private function buildCenterSeriesDefinitions(\Doctrine\DBAL\Connection $connection, string $table): array
-    {
-        try {
-            $tableDetails = $connection->createSchemaManager()->introspectTable($table);
-        } catch (\Throwable) {
-            return [];
-        }
-
-        if (!$tableDetails->hasColumn('centrum_handlowe')) {
-            return [];
-        }
-
-        $centerMap = $this->fetchCenterLabels($connection);
-        if ($centerMap === []) {
-            return [];
-        }
-
-        $seriesDefinitions = [];
-        foreach ($centerMap as $centerId => $centerLabel) {
-            $seriesDefinitions[] = [
-                'key' => 'center_' . preg_replace('/[^a-zA-Z0-9_\-]+/', '_', (string) $centerId),
-                'label' => $centerLabel,
-                'filters' => ['centrum_handlowe' => (string) $centerId],
-            ];
-        }
-
-        return $seriesDefinitions;
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function fetchCenterLabels(\Doctrine\DBAL\Connection $connection): array
-    {
-        try {
-            $rows = $connection->createQueryBuilder()
-                ->select('id', 'name', 'city')
-                ->from('centra_handlowe_entries')
-                ->orderBy('position', 'ASC')
-                ->addOrderBy('name', 'ASC')
-                ->executeQuery()
-                ->fetchAllAssociative();
-        } catch (\Throwable) {
-            return [];
-        }
-
-        $centerMap = [];
-        foreach ($rows as $row) {
-            $centerId = trim((string) ($row['id'] ?? ''));
-            if ($centerId === '') {
-                continue;
-            }
-
-            $city = trim((string) ($row['city'] ?? ''));
-            $name = trim((string) ($row['name'] ?? ''));
-            $centerMap[$centerId] = $city !== '' ? $city : ($name !== '' ? $name : $centerId);
-        }
-
-        return $centerMap;
+        return [];
     }
 
     /**
@@ -1374,37 +1100,6 @@ class BackendController extends BaseController
         }
 
         return $counts;
-    }
-
-    /**
-     * @return array{first_time: array<int, string>, not_first_time: array<int, string>}
-     */
-    private function resolvePitFirstTimeFilterMap(\Doctrine\DBAL\Connection $connection, string $table): array
-    {
-        $defaultMap = [
-            'first_time' => ['1', 'first_time'],
-            'not_first_time' => ['0', 'not_first_time'],
-        ];
-
-        try {
-            $tableDetails = $connection->createSchemaManager()->introspectTable($table);
-        } catch (\Throwable) {
-            return $defaultMap;
-        }
-
-        if (!$tableDetails->hasColumn('pit_first_time')) {
-            return $defaultMap;
-        }
-
-        $columnType = $tableDetails->getColumn('pit_first_time')->getType()->getName();
-        if (!in_array($columnType, ['boolean', 'smallint', 'integer', 'bigint'], true)) {
-            return $defaultMap;
-        }
-
-        return [
-            'first_time' => ['1'],
-            'not_first_time' => ['0'],
-        ];
     }
 
     /**

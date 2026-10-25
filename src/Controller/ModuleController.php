@@ -7,17 +7,8 @@ use App\Entity\ModuleListPreference;
 use App\Entity\ModuleChangeLog;
 use App\Service\FtpMediaStorage;
 use App\Service\ModuleDefinitionLoader;
-use App\Service\LotteryDailyEntryLimitService;
-use App\Service\LotteryDailyLimitException;
-use App\Service\LotteryRegistrationValidator;
-use App\Service\LotteryReceiptValidator;
-use App\Service\LotteryProductAllocation;
 use App\Service\SystemSettingsProvider;
 use App\Service\PermissionService;
-use App\Service\WinnerDrawingAvailabilityService;
-use App\Service\WinnerFormReminderService;
-use App\Service\WinnerPrizeCodeAssignmentService;
-use App\Service\WinnerStatusEmailService;
 use Dompdf\Dompdf;
 use Dompdf\Options;
 use Doctrine\DBAL\ArrayParameterType;
@@ -37,7 +28,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class ModuleController extends BaseController
 {
     private const LIST_STATE_SESSION_PREFIX = 'cms.module_list_state.';
-    private const TRANSIENT_LIST_QUERY_KEYS = ['eligible_tickets_min', 'exclude_invalid_submissions'];
+    private const TRANSIENT_LIST_QUERY_KEYS = [];
     /** @var array<string, ModuleOnChangeController> */
     private array $onChangeControllers = [];
     /** @var array<string, ModuleListActionController> */
@@ -246,17 +237,6 @@ class ModuleController extends BaseController
             }
         }
 
-        $lotteryTypeOptions = [];
-        $lotteryOptions = [];
-        $storeActiveOptions = [];
-        $grantedOptions = [];
-        $winnerStatusOptions = [];
-        $winnerPrizeTypeOptions = [];
-        $winnerStoreOptions = [];
-        $scratchWinOptions = [];
-        $scratchStatusOptions = [];
-        $ticketStatusOptions = [];
-        $faqCategoryOptions = [];
         $defaultFilters = $this->resolveModuleFilters($module, $fields);
         $availableFilters = $this->resolveModuleFilters($module, $fields, [], true);
         $defaultFilterNames = array_keys($defaultFilters);
@@ -439,7 +419,6 @@ class ModuleController extends BaseController
             ->select('*')
             ->from($table);
         $this->applyFixedListFilters($queryBuilder, $module);
-        $winningCodesUsageSummary = [];
 
         $searchColumns = $this->resolveSearchColumns($fields, $columns, $primaryKey);
         $this->applyModuleListSearch($queryBuilder, $fields, $searchColumns, $table, $query);
@@ -454,34 +433,6 @@ class ModuleController extends BaseController
 
             $this->applyDirectModuleFilter($queryBuilder, $filterName, $filterValue, $filterConfig);
         }
-
-        $this->applyLotteryTicketsVerifiedSubmissionFilter($request, $moduleKey, $queryBuilder);
-        $this->applyEligibleTicketsMinimumFilter($request, $moduleKey, $table, $queryBuilder);
-
-        if (in_array($moduleKey, ['lista_wygranych_kodow', 'kody_graficzne'], true)) {
-            $summaryQueryBuilder = clone $queryBuilder;
-            $usageSummaryRows = $summaryQueryBuilder
-                ->select(
-                    'wartosc_kodu',
-                    'SUM(CASE WHEN kod_wykorzystany = 1 THEN 1 ELSE 0 END) AS wykorzystane',
-                    'SUM(CASE WHEN kod_wykorzystany = 0 OR kod_wykorzystany IS NULL THEN 1 ELSE 0 END) AS niewykorzystane',
-                    'COUNT(*) AS wszystkie'
-                )
-                ->groupBy('wartosc_kodu')
-                ->orderBy('CAST(wartosc_kodu AS DECIMAL(10,2))', 'ASC')
-                ->executeQuery()
-                ->fetchAllAssociative();
-
-            foreach ($usageSummaryRows as $usageSummaryRow) {
-                $winningCodesUsageSummary[] = [
-                    'wartosc_kodu' => (string) ($usageSummaryRow['wartosc_kodu'] ?? ''),
-                    'wykorzystane' => (int) ($usageSummaryRow['wykorzystane'] ?? 0),
-                    'niewykorzystane' => (int) ($usageSummaryRow['niewykorzystane'] ?? 0),
-                    'wszystkie' => (int) ($usageSummaryRow['wszystkie'] ?? 0),
-                ];
-            }
-        }
-
 
         $countQueryBuilder = clone $queryBuilder;
         $totalRows = (int) $countQueryBuilder
@@ -553,61 +504,6 @@ class ModuleController extends BaseController
         }
         unset($filterConfig);
 
-        $pendingWinnerPrizesCount = null;
-        $winnerFormReminder = null;
-        $winnerPostCreateQueueSummary = null;
-        if ($moduleKey === 'zwyciezcy') {
-            $winnerTableColumns = array_keys($connection->createSchemaManager()->listTableColumns($table));
-            if (in_array('post_create_processing_status', $winnerTableColumns, true)) {
-                $queueCounts = $connection->createQueryBuilder()
-                    ->select("SUM(CASE WHEN post_create_processing_status = 'pending' THEN 1 ELSE 0 END) AS pending_count")
-                    ->addSelect("SUM(CASE WHEN post_create_processing_status = 'processing' THEN 1 ELSE 0 END) AS processing_count")
-                    ->addSelect("SUM(CASE WHEN post_create_processing_status = 'failed' THEN 1 ELSE 0 END) AS failed_count")
-                    ->from($table)
-                    ->executeQuery()
-                    ->fetchAssociative();
-
-                $pendingQueueCount = (int) ($queueCounts['pending_count'] ?? 0);
-                $processingQueueCount = (int) ($queueCounts['processing_count'] ?? 0);
-                $winnerPostCreateQueueSummary = [
-                    'remaining' => $pendingQueueCount + $processingQueueCount,
-                    'pending' => $pendingQueueCount,
-                    'processing' => $processingQueueCount,
-                    'failed' => (int) ($queueCounts['failed_count'] ?? 0),
-                ];
-            }
-
-            $pendingWinnerQueryBuilder = $this->entityManager->getConnection()->createQueryBuilder()
-                ->from($table)
-                ->where('stan IN (:statuses)')
-                ->andWhere('(kod_z_listy_wygranych IS NULL OR kod_z_listy_wygranych = 0 OR kod_z_listy_wygranych = :empty)')
-                ->setParameter('statuses', ['sprawdzone', 'ai_sprawdzone'], ArrayParameterType::STRING)
-                ->setParameter('empty', '');
-
-            $pendingWinnerPrizesCount = (int) (clone $pendingWinnerQueryBuilder)
-                ->select('COUNT(*)')
-                ->executeQuery()
-                ->fetchOne();
-
-            $winnerFormReminderService = new WinnerFormReminderService($this->mailer);
-            $winnerFormSettings = $this->fetchModuleEntry('loteria_ustawienia') ?? [];
-            $eligibleWinnerForms = $winnerFormReminderService->findEligibleWinners(
-                $connection,
-                $winnerFormSettings
-            );
-            $winnerFormReminderRecipients = array_values(array_unique(array_filter(array_map(
-                static fn(array $winner): string => strtolower(trim((string) ($winner['email'] ?? ''))),
-                $eligibleWinnerForms
-            ), static fn(string $email): bool => $email !== '')));
-            $winnerFormReminder = [
-                'count' => count($eligibleWinnerForms),
-                'recipient_count' => count($winnerFormReminderRecipients),
-                'templates' => $winnerFormReminderService->fetchTemplateOptions($connection),
-                'active_until' => trim((string) ($winnerFormSettings['winner_form_active_until'] ?? '')),
-                'validity_days' => max(0, (int) ($winnerFormSettings['winner_form_validity_days'] ?? 0)),
-            ];
-        }
-
         return $this->render('backend/module_list.html.twig', [
             'user' => $user,
             'moduleKey' => $moduleKey,
@@ -627,31 +523,6 @@ class ModuleController extends BaseController
             'defaultFilterLabels' => $defaultFilterLabels,
             'rows' => $rows,
             'query' => $query,
-            'selectedCenter' => '',
-            'lotteryTypeOptions' => $lotteryTypeOptions,
-            'selectedLotteryType' => '',
-            'lotteryOptions' => $lotteryOptions,
-            'selectedLottery' => '',
-            'storeActiveOptions' => $storeActiveOptions,
-            'selectedStoreActive' => '',
-            'grantedOptions' => $grantedOptions,
-            'selectedGranted' => '',
-            'winnerStatusOptions' => $winnerStatusOptions,
-            'winnerPrizeTypeOptions' => $winnerPrizeTypeOptions,
-            'selectedWinnerStatus' => '',
-            'selectedWinnerPrizeType' => '',
-            'winnerStoreOptions' => $winnerStoreOptions,
-            'selectedWinnerStore' => '',
-            'selectedWinnerDateFrom' => '',
-            'selectedWinnerDateTo' => '',
-            'scratchWinOptions' => $scratchWinOptions,
-            'selectedScratchWin' => '',
-            'scratchStatusOptions' => $scratchStatusOptions,
-            'selectedScratchStatus' => '',
-            'ticketStatusOptions' => $ticketStatusOptions,
-            'selectedTicketStatus' => '',
-            'faqCategoryOptions' => $faqCategoryOptions,
-            'selectedFaqCategory' => '',
             'configuredFilters' => $configuredFilters,
             'selectedFilters' => $selectedFilters,
             'sort' => $sort,
@@ -678,10 +549,6 @@ class ModuleController extends BaseController
             'extraActions' => $extraActions,
             'extraRowActions' => $extraRowActions,
             'alert' => $alert,
-            'winningCodesUsageSummary' => $winningCodesUsageSummary,
-            'pendingWinnerPrizesCount' => $pendingWinnerPrizesCount,
-            'winnerFormReminder' => $winnerFormReminder,
-            'winnerPostCreateQueueSummary' => $winnerPostCreateQueueSummary,
         ]);
     }
 
@@ -756,8 +623,6 @@ class ModuleController extends BaseController
             }
         }
         $inserted = 0;
-        $limitRejectedCount = 0;
-        $limitRejectionMessage = '';
 
         foreach ($rows as $row) {
             $values = [];
@@ -784,23 +649,13 @@ class ModuleController extends BaseController
                 continue;
             }
 
-            try {
-                $this->insertModuleEntry($connection, $moduleKey, $table, $values);
-            } catch (LotteryDailyLimitException $exception) {
-                $limitRejectedCount++;
-                $limitRejectionMessage = $exception->getMessage();
-                continue;
-            }
+            $this->insertModuleEntry($connection, $moduleKey, $table, $values);
             $inserted++;
         }
 
         $this->recordModuleChange($request, $moduleKey, 'import', null, ['imported_rows' => $inserted]);
 
-        $message = sprintf('Zaimportowano %d wierszy z CSV.', $inserted);
-        if ($limitRejectedCount > 0) {
-            $message .= sprintf(' Nie przyznano %d wpisów: %s', $limitRejectedCount, $limitRejectionMessage);
-        }
-        return $this->redirectWithModuleAlert($request, $moduleKey, $limitRejectedCount > 0 ? 'warning' : 'success', $message);
+        return $this->redirectWithModuleAlert($request, $moduleKey, 'success', sprintf('Zaimportowano %d wierszy z CSV.', $inserted));
     }
 
     public function export(Request $request, array $parameters): Response
@@ -880,19 +735,6 @@ class ModuleController extends BaseController
             static fn(string $value): string => trim($value),
             explode(',', $selectedIdsRaw)
         ), static fn(string $value): bool => $value !== '')));
-        $selectedCenter = '';
-        $selectedLotteryType = '';
-        $selectedLottery = '';
-        $selectedStoreActive = '';
-        $selectedGranted = '';
-        $selectedWinnerStatus = '';
-        $selectedWinnerPrizeType = '';
-        $selectedWinnerStore = '';
-        $selectedWinnerDateFrom = '';
-        $selectedWinnerDateTo = '';
-        $selectedScratchWin = '';
-        $selectedScratchStatus = '';
-        $selectedTicketStatus = '';
         $defaultSort = (string) ($module['list']['default_sort'] ?? $primaryKey);
         $defaultDir = strtolower((string) ($module['list']['default_dir'] ?? 'desc')) === 'asc' ? 'asc' : 'desc';
         $sort = (string) $request->query->get('sort', $defaultSort);
@@ -921,9 +763,6 @@ class ModuleController extends BaseController
             }
         }
 
-        $centerOptions = [];
-        $selectedWinnerDateFrom = '';
-        $selectedWinnerDateTo = '';
         $configuredFilters = $this->resolveModuleFilters($module, $fields, [], true);
         $selectedFilters = [];
         foreach ($configuredFilters as $filterName => $filterConfig) {
@@ -981,19 +820,6 @@ class ModuleController extends BaseController
         $searchColumns = $this->resolveSearchColumns($fields, $defaultSearchColumns, $primaryKey);
         $this->applyModuleListSearch($queryBuilder, $fields, $searchColumns, $table, $query);
 
-
-
-
-
-
-
-
-
-
-
-
-
-
         foreach ($selectedFilters as $filterName => $filterValue) {
             $filterConfig = $configuredFilters[$filterName] ?? [];
             $filterField = is_array($filterConfig) ? ($filterConfig['field'] ?? null) : null;
@@ -1004,9 +830,6 @@ class ModuleController extends BaseController
 
             $this->applyDirectModuleFilter($queryBuilder, $filterName, $filterValue, $filterConfig);
         }
-
-        $this->applyLotteryTicketsVerifiedSubmissionFilter($request, $moduleKey, $queryBuilder);
-        $this->applyEligibleTicketsMinimumFilter($request, $moduleKey, $table, $queryBuilder);
 
         if ($selectedIds !== []) {
             $queryBuilder->andWhere($queryBuilder->expr()->in($primaryKey, ':selected_export_ids'));
@@ -1223,916 +1046,6 @@ class ModuleController extends BaseController
         return new Response('Nieobsługiwany format eksportu.', Response::HTTP_BAD_REQUEST);
     }
 
-    public function importWinningCodes(Request $request, array $parameters): Response
-    {
-        if (!$this->authService->requireAuth()) {
-            return new RedirectResponse('/cms/login');
-        }
-
-        $moduleKey = (string) ($parameters['moduleKey'] ?? '');
-        if (!in_array($moduleKey, ['lista_wygranych_kodow'], true)) {
-            return new Response('Nie znaleziono modułu.', Response::HTTP_NOT_FOUND);
-        }
-
-        $definition = $this->loadModuleDefinition($moduleKey);
-        if (!$definition) {
-            return new Response('Nie znaleziono modułu.', Response::HTTP_NOT_FOUND);
-        }
-
-        if ($response = $this->denyUnlessPermission($moduleKey, PermissionService::ACTION_CREATE)) {
-            return $response;
-        }
-
-        $fields = $this->hydrateRelationFields($this->normalizeFields($definition));
-        $lotteryOptions = [];
-        foreach ($fields as $field) {
-            $name = (string) ($field['name'] ?? '');
-            $options = $field['options'] ?? [];
-            if ($name !== 'loteria' || !is_array($options)) {
-                continue;
-            }
-
-            $lotteryOptions = $options;
-        }
-
-        $errors = [];
-        $values = [
-            'loteria' => trim((string) $request->request->get('loteria', '')),
-        ];
-
-        if ($request->isMethod('POST')) {
-            if ($values['loteria'] === '' || !array_key_exists($values['loteria'], $lotteryOptions)) {
-                $errors[] = 'Wybierz poprawną loterię.';
-            }
-
-            $uploadedFile = $request->files->get('codes_file');
-            if (!$uploadedFile instanceof UploadedFile) {
-                $errors[] = 'Dodaj plik XLS lub XLSX z kodami.';
-            } elseif (!$uploadedFile->isValid()) {
-                $errors[] = 'Nie udało się przesłać pliku.';
-            } else {
-                $extension = strtolower((string) $uploadedFile->getClientOriginalExtension());
-                if (!in_array($extension, ['xls', 'xlsx'], true)) {
-                    $errors[] = 'Dozwolone są wyłącznie pliki XLS i XLSX.';
-                }
-            }
-
-            if ($errors === []) {
-                try {
-                    $importRows = $this->extractWinningCodesFromSpreadsheet($uploadedFile);
-                } catch (\Throwable $exception) {
-                    $importRows = [];
-                    $errors[] = 'Nie udało się odczytać pliku. Sprawdź, czy zawiera kolumnę PickupCode.';
-                }
-            }
-
-            if ($errors === []) {
-                if ($importRows === []) {
-                    $errors[] = 'Plik nie zawiera żadnych poprawnych wierszy do importu.';
-                }
-
-                $duplicateRowsInFile = $this->findDuplicateWinningCodeRows($importRows);
-                if ($duplicateRowsInFile !== []) {
-                    $errors[] = 'Plik zawiera zduplikowane kody PickupCode: ' . implode(', ', array_slice($duplicateRowsInFile, 0, 10)) . (count($duplicateRowsInFile) > 10 ? '…' : '');
-                }
-            }
-
-            if ($errors === []) {
-                $connection = $this->entityManager->getConnection();
-                $table = (string) ($definition['database']['table'] ?? '');
-                if ($table === '') {
-                    $errors[] = 'Brak konfiguracji tabeli modułu.';
-                } else {
-                    $existingRows = $connection->createQueryBuilder()
-                        ->select('pickup_code')
-                        ->from($table)
-                        ->executeQuery()
-                        ->fetchAllAssociative();
-
-                    $existingPairs = [];
-                    foreach ($existingRows as $existingRow) {
-                        $existingKey = $this->buildWinningCodeKey((string) ($existingRow['pickup_code'] ?? ''));
-                        if ($existingKey !== '') {
-                            $existingPairs[$existingKey] = true;
-                        }
-                    }
-
-                    $conflictingCodes = [];
-                    foreach ($importRows as $importRow) {
-                        $codeKey = $this->buildWinningCodeKey($importRow['pickup_code']);
-                        if ($codeKey !== '' && isset($existingPairs[$codeKey])) {
-                            $conflictingCodes[] = $codeKey;
-                        }
-                    }
-                    $conflictingCodes = array_values(array_unique($conflictingCodes));
-
-                    if ($conflictingCodes !== []) {
-                        $errors[] = 'Takie kody już istnieją. Konfliktowe kody: ' . implode(', ', array_slice($conflictingCodes, 0, 10)) . (count($conflictingCodes) > 10 ? '…' : '');
-                    } else {
-                        $connection->beginTransaction();
-                        try {
-                            foreach ($importRows as $importRow) {
-                                $connection->insert($table, [
-                                    'pickup_code' => $importRow['pickup_code'],
-                                    'loteria' => $values['loteria'],
-                                    'kod_wykorzystany' => 0,
-                                    'data_i_godzina_przyznania' => null,
-                                ]);
-                            }
-                            $connection->commit();
-                        } catch (\Throwable $exception) {
-                            $connection->rollBack();
-                            throw $exception;
-                        }
-
-                        $this->recordModuleChange($request, $moduleKey, 'import', null, [
-                            'imported_rows' => count($importRows),
-                            'loteria' => $values['loteria'],
-                            'source_file' => $uploadedFile->getClientOriginalName(),
-                        ]);
-                        $query = http_build_query([
-                            'status' => 'success',
-                            'message' => sprintf('Zaimportowano %d kodów z pliku %s.', count($importRows), $uploadedFile->getClientOriginalName()),
-                        ]);
-
-                        return new RedirectResponse('/cms/modules/' . $moduleKey . '?' . $query);
-                    }
-                }
-            }
-        }
-
-        return $this->render('backend/module_import_winning_codes.html.twig', [
-            'user' => $this->authService->user(),
-            'moduleKey' => $moduleKey,
-            'module' => $definition['module'],
-            'values' => $values,
-            'errors' => $errors,
-            'lotteryOptions' => $lotteryOptions,
-            'backUrl' => $this->getModuleListUrl($request, $moduleKey),
-        ]);
-    }
-
-    public function importWinnersCsv(Request $request, array $parameters): Response
-    {
-        if (!$this->authService->requireAuth()) {
-            return new RedirectResponse('/cms/login');
-        }
-
-        $moduleKey = (string) ($parameters['moduleKey'] ?? '');
-        if ($moduleKey !== 'zwyciezcy') {
-            return new Response('Nie znaleziono modułu.', Response::HTTP_NOT_FOUND);
-        }
-
-        $definition = $this->loadModuleDefinition($moduleKey);
-        if (!$definition) {
-            return new Response('Nie znaleziono modułu.', Response::HTTP_NOT_FOUND);
-        }
-        if ($response = $this->denyUnlessPermission($moduleKey, PermissionService::ACTION_CREATE)) {
-            return $response;
-        }
-
-        $module = $definition['module'];
-        if (!$this->moduleAllowsConfiguredAction($module, 'create')) {
-            return new Response('Brak uprawnień.', Response::HTTP_FORBIDDEN);
-        }
-
-        if ($request->isMethod('GET') && $request->query->getBoolean('sample')) {
-            $response = new StreamedResponse(static function (): void {
-                $output = fopen('php://output', 'wb');
-                if ($output === false) {
-                    throw new \RuntimeException('Nie udało się utworzyć przykładowego pliku CSV.');
-                }
-
-                fwrite($output, "\xEF\xBB\xBF");
-                fputcsv($output, ['ID'], ';', '"', '');
-                fputcsv($output, ['12345'], ';', '"', '');
-                fputcsv($output, ['12346'], ';', '"', '');
-                fclose($output);
-            });
-            $response->headers->set('Content-Type', 'text/csv; charset=utf-8');
-            $response->headers->set('Content-Disposition', 'attachment; filename="przyklad-importu-zwyciezcow.csv"');
-
-            return $response;
-        }
-
-        $connection = $this->entityManager->getConnection();
-        $prizeTypeColumns = array_keys($connection->createSchemaManager()->listTableColumns('rodzaje_nagrod_entries'));
-        $prizeTypeSelect = ['id', 'name'];
-        if (in_array('rodzaj_nagrody', $prizeTypeColumns, true)) {
-            $prizeTypeSelect[] = 'rodzaj_nagrody';
-        }
-        if (in_array('jedna_nagroda_na_uzytkownika_w_losowaniu', $prizeTypeColumns, true)) {
-            $prizeTypeSelect[] = 'jedna_nagroda_na_uzytkownika_w_losowaniu';
-        }
-        if (in_array('jedna_nagroda_na_uzytkownika_w_loterii', $prizeTypeColumns, true)) {
-            $prizeTypeSelect[] = 'jedna_nagroda_na_uzytkownika_w_loterii';
-        }
-        foreach (['loteria', 'status_po_wygraniu_nagrody'] as $optionalColumn) {
-            if (in_array($optionalColumn, $prizeTypeColumns, true)) {
-                $prizeTypeSelect[] = $optionalColumn;
-            }
-        }
-        $prizeTypeRows = $connection->createQueryBuilder()
-            ->select(...$prizeTypeSelect)
-            ->from('rodzaje_nagrod_entries')
-            ->orderBy('name', 'ASC')
-            ->addOrderBy('id', 'ASC')
-            ->executeQuery()
-            ->fetchAllAssociative();
-        $prizeTypeOptions = [];
-        $prizeTypesById = [];
-        foreach ($prizeTypeRows as $prizeTypeRow) {
-            $id = trim((string) ($prizeTypeRow['id'] ?? ''));
-            if ($id === '') {
-                continue;
-            }
-
-            $option = [
-                'id' => $id,
-                'name' => trim((string) ($prizeTypeRow['name'] ?? '')),
-                'kind' => trim((string) ($prizeTypeRow['rodzaj_nagrody'] ?? '')),
-                'lottery_id' => trim((string) ($prizeTypeRow['loteria'] ?? '')),
-                'initial_status' => trim((string) ($prizeTypeRow['status_po_wygraniu_nagrody'] ?? '')),
-                'one_per_user_per_drawing' => filter_var(
-                    $prizeTypeRow['jedna_nagroda_na_uzytkownika_w_losowaniu'] ?? false,
-                    FILTER_VALIDATE_BOOLEAN
-                ),
-                'one_per_user_per_lottery' => filter_var(
-                    $prizeTypeRow['jedna_nagroda_na_uzytkownika_w_loterii'] ?? false,
-                    FILTER_VALIDATE_BOOLEAN
-                ),
-            ];
-            $prizeTypeOptions[] = $option;
-            $prizeTypesById[$id] = $option;
-        }
-
-        $drawingRows = (new WinnerDrawingAvailabilityService())->fetchDrawingOptions($connection);
-        $drawingOptions = [];
-        $disabledDrawingOptions = [];
-        foreach ($drawingRows as $drawingRow) {
-            $drawingId = trim((string) ($drawingRow['id'] ?? ''));
-            if ($drawingId === '') {
-                continue;
-            }
-
-            $drawingOptions[$drawingId] = (string) ($drawingRow['label'] ?? $drawingId);
-            if (!($drawingRow['selectable'] ?? false)) {
-                $disabledDrawingOptions[$drawingId] = true;
-            }
-        }
-
-        $values = [
-            'rodzaj' => trim((string) $request->request->get('rodzaj', 'los')),
-            'rodzaj_wygranej' => trim((string) $request->request->get('rodzaj_wygranej', '')),
-            'losowanie' => trim((string) $request->request->get('losowanie', '')),
-            'winner_ids' => trim((string) $request->request->get('winner_ids', '')),
-        ];
-        $errors = [];
-        $importLogDetails = [];
-        $technicalErrors = [];
-        $sourceFileName = '';
-        $createdRecords = [];
-        $skippedWinners = [];
-        $currentImportLog = null;
-
-        if ($request->isMethod('POST')) {
-            $winnerKind = $values['rodzaj'];
-            if ($request->request->getBoolean('send_winner_emails')
-                && !$request->request->getBoolean('confirm_winner_emails')) {
-                $errors[] = 'Potwierdź wysyłkę maili do zwycięzców przed dodaniem.';
-            }
-            $winnerPostCreateColumns = [
-                'post_create_processing_status',
-                'post_create_send_email',
-                'post_create_attempts',
-                'post_create_last_error',
-                'post_create_locked_at',
-                'post_create_next_attempt_at',
-                'post_create_processed_at',
-            ];
-            $winnerTableColumns = array_keys($connection->createSchemaManager()->listTableColumns(
-                (string) ($definition['database']['table'] ?? 'loteria_zwyciezcy_entries')
-            ));
-            if (array_diff($winnerPostCreateColumns, $winnerTableColumns) !== []) {
-                $errors[] = 'Brak pól kolejki przetwarzania zwycięzców. Uruchom instalację/aktualizację bazy danych w CMS.';
-            }
-            $isScratchWinner = $winnerKind === 'zdrapka';
-            if (!in_array($winnerKind, ['los', 'zdrapka'], true)) {
-                $errors[] = 'Wybierz poprawny rodzaj wygranej.';
-            }
-            if (!$isScratchWinner && (
-                !array_key_exists($values['losowanie'], $drawingOptions)
-                || isset($disabledDrawingOptions[$values['losowanie']])
-            )) {
-                $errors[] = 'Wybierz losowanie, w którym wylosowano nagrodę.';
-            }
-            if ($isScratchWinner) {
-                $values['losowanie'] = '';
-            }
-
-            $selectedPrizeType = $prizeTypesById[$values['rodzaj_wygranej']] ?? null;
-            if (!is_array($selectedPrizeType)) {
-                $errors[] = 'Wybierz poprawny rodzaj nagrody.';
-            } else {
-                $requiredPrizeKind = $isScratchWinner ? 'zdrapki' : 'losy';
-                $selectedPrizeKind = trim((string) ($selectedPrizeType['kind'] ?? ''));
-                if ($selectedPrizeKind !== '' && $selectedPrizeKind !== $requiredPrizeKind) {
-                    $errors[] = $isScratchWinner
-                        ? 'Wybrany rodzaj nagrody nie jest przeznaczony dla zdrapek.'
-                        : 'Wybrany rodzaj nagrody nie jest przeznaczony dla losów.';
-                }
-            }
-
-            $uploadedFile = $request->files->get('winners_csv_file');
-            $hasManualIds = $values['winner_ids'] !== '';
-            $sourceFileName = $uploadedFile instanceof UploadedFile
-                ? $uploadedFile->getClientOriginalName()
-                : ($hasManualIds ? 'ID wpisane ręcznie' : '');
-            if ($hasManualIds && $uploadedFile instanceof UploadedFile) {
-                $errors[] = 'Wpisz identyfikatory ręcznie albo dodaj plik CSV, nie obie opcje naraz.';
-            } elseif (!$hasManualIds && !($uploadedFile instanceof UploadedFile)) {
-                $errors[] = 'Wpisz identyfikatory lub dodaj plik CSV.';
-            } elseif ($uploadedFile instanceof UploadedFile && !$uploadedFile->isValid()) {
-                $errors[] = 'Nie udało się przesłać pliku CSV.';
-            } elseif ($uploadedFile instanceof UploadedFile && strtolower((string) $uploadedFile->getClientOriginalExtension()) !== 'csv') {
-                $errors[] = 'Dozwolone są wyłącznie pliki CSV.';
-            }
-
-            $csvRows = [];
-            $ticketIds = [];
-            if ($errors === [] && !$hasManualIds) {
-                $csvRows = $this->parseCsvFile($uploadedFile);
-                if ($csvRows === []) {
-                    $errors[] = 'Plik CSV nie zawiera danych do importu.';
-                }
-            }
-
-            if ($errors === []) {
-                if ($hasManualIds) {
-                    $ticketIds = preg_split('/[\s,;]+/u', $values['winner_ids'], -1, PREG_SPLIT_NO_EMPTY) ?: [];
-                } else {
-                    $acceptedIdHeaders = [
-                        'id',
-                        'los - id',
-                        'zdrapka - id',
-                        'ticket_id',
-                        'los - ticket_id',
-                        'zdrapka - ticket_id',
-                    ];
-                    $idColumn = null;
-                    foreach (array_keys($csvRows[0]) as $columnName) {
-                        if (in_array(mb_strtolower(trim((string) $columnName)), $acceptedIdHeaders, true)) {
-                            $idColumn = (string) $columnName;
-                            break;
-                        }
-                    }
-                    if ($idColumn === null) {
-                        $errors[] = 'Plik CSV musi zawierać kolumnę ID lub Los - ID.';
-                    } else {
-                        foreach ($csvRows as $csvRow) {
-                            $ticketId = trim((string) ($csvRow[$idColumn] ?? ''));
-                            if ($ticketId !== '') {
-                                $ticketIds[] = $ticketId;
-                            }
-                        }
-                    }
-                }
-
-                if ($ticketIds === [] && ($hasManualIds || $idColumn !== null)) {
-                    $errors[] = $hasManualIds
-                        ? 'Nie znaleziono identyfikatorów w polu tekstowym.'
-                        : 'Kolumna ID nie zawiera żadnych identyfikatorów.';
-                }
-                if (count($ticketIds) > 5000) {
-                    $errors[] = 'Jednorazowo można zaimportować maksymalnie 5000 zwycięzców.';
-                }
-
-                $idCounts = array_count_values($ticketIds);
-                $duplicateIds = array_keys(array_filter($idCounts, static fn(int $count): bool => $count > 1));
-                if ($duplicateIds !== []) {
-                    $errors[] = 'Podane dane zawierają powtórzone ID: '
-                        . implode(', ', array_slice($duplicateIds, 0, 10))
-                        . (count($duplicateIds) > 10 ? '…' : '') . '.';
-                    foreach ($duplicateIds as $duplicateId) {
-                        $importLogDetails[] = [
-                            'level' => 'error',
-                            'ticket_id' => (string) $duplicateId,
-                            'message' => sprintf('ID występuje w podanych danych %d razy.', $idCounts[$duplicateId]),
-                        ];
-                    }
-                }
-            }
-
-            $preparedWinners = [];
-            if ($errors === []) {
-                $ticketTable = $isScratchWinner ? 'loteria_zdrapki_entries' : 'loteria_losy_entries';
-                $ticketRows = $connection->createQueryBuilder()
-                    ->select('*')
-                    ->from($ticketTable)
-                    ->where('ticket_id IN (:ticket_ids)')
-                    ->setParameter('ticket_ids', $ticketIds, ArrayParameterType::STRING)
-                    ->executeQuery()
-                    ->fetchAllAssociative();
-
-                $ticketsByPublicId = [];
-                foreach ($ticketRows as $ticketRow) {
-                    $publicId = trim((string) ($ticketRow['ticket_id'] ?? ''));
-                    if ($publicId !== '') {
-                        $ticketsByPublicId[$publicId] = $ticketRow;
-                    }
-                }
-
-                $submissionIds = array_values(array_unique(array_filter(array_map(
-                    static fn(array $ticket): int => (int) ($ticket['zgloszenie'] ?? 0),
-                    $ticketRows
-                ), static fn(int $id): bool => $id > 0)));
-                $submissionRows = $submissionIds === [] ? [] : $connection->createQueryBuilder()
-                    ->select('*')
-                    ->from('loteria_zgloszenia_entries')
-                    ->where('id IN (:submission_ids)')
-                    ->setParameter('submission_ids', $submissionIds, ArrayParameterType::INTEGER)
-                    ->executeQuery()
-                    ->fetchAllAssociative();
-                $submissionsById = [];
-                foreach ($submissionRows as $submissionRow) {
-                    $submissionId = (int) ($submissionRow['id'] ?? 0);
-                    if ($submissionId > 0) {
-                        $submissionsById[$submissionId] = $submissionRow;
-                    }
-                }
-
-                $missingIds = array_values(array_filter(
-                    $ticketIds,
-                    static fn(string $ticketId): bool => !isset($ticketsByPublicId[$ticketId])
-                ));
-                if ($missingIds !== []) {
-                    $errors[] = ($isScratchWinner ? 'Nie znaleziono zdrapek o ID: ' : 'Nie znaleziono losów o ID: ')
-                        . implode(', ', array_slice($missingIds, 0, 10))
-                        . (count($missingIds) > 10 ? '…' : '') . '.';
-                    foreach ($missingIds as $missingId) {
-                        $importLogDetails[] = [
-                            'level' => 'error',
-                            'ticket_id' => $missingId,
-                            'message' => $isScratchWinner
-                                ? 'Nie znaleziono zdrapki o tym ID.'
-                                : 'Nie znaleziono losu o tym ID.',
-                        ];
-                    }
-                }
-
-                if ($errors === []) {
-                    $internalTicketIds = array_values(array_filter(array_map(
-                        static fn(array $ticket): int => (int) ($ticket['id'] ?? 0),
-                        $ticketsByPublicId
-                    ), static fn(int $id): bool => $id > 0));
-                    $winnerTicketColumn = $isScratchWinner ? 'zdrapka_w_loterii' : 'kupon_w_loterii';
-                    $existingTicketIds = $internalTicketIds === [] ? [] : $connection->createQueryBuilder()
-                        ->select($winnerTicketColumn)
-                        ->from((string) $definition['database']['table'])
-                        ->where($winnerTicketColumn . ' IN (:ticket_ids)')
-                        ->andWhere('rodzaj_wygranej = :prize_type_id')
-                        ->setParameter('ticket_ids', $internalTicketIds, ArrayParameterType::INTEGER)
-                        ->setParameter('prize_type_id', $values['rodzaj_wygranej'])
-                        ->executeQuery()
-                        ->fetchFirstColumn();
-                    $existingTicketMap = array_fill_keys(array_map('intval', $existingTicketIds), true);
-                    $conflictingIds = [];
-                    foreach ($ticketIds as $ticketId) {
-                        $internalId = (int) ($ticketsByPublicId[$ticketId]['id'] ?? 0);
-                        if (isset($existingTicketMap[$internalId])) {
-                            $conflictingIds[] = $ticketId;
-                        }
-                    }
-                    if ($conflictingIds !== []) {
-                        $errors[] = 'Dla tych ID istnieją już zwycięzcy z wybranym rodzajem nagrody: '
-                            . implode(', ', array_slice($conflictingIds, 0, 10))
-                            . (count($conflictingIds) > 10 ? '…' : '') . '.';
-                        foreach ($conflictingIds as $conflictingId) {
-                            $importLogDetails[] = [
-                                'level' => 'error',
-                                'ticket_id' => $conflictingId,
-                                'message' => 'Dla tego ID istnieje już zwycięzca z wybranym rodzajem nagrody.',
-                            ];
-                        }
-                    }
-                }
-
-                if ($errors === []) {
-                    $enforceOnePrizePerUserInDrawing = !$isScratchWinner
-                        && ($selectedPrizeType['one_per_user_per_drawing'] ?? false) === true;
-                    $enforceOnePrizePerUserInLottery = !$isScratchWinner
-                        && ($selectedPrizeType['one_per_user_per_lottery'] ?? false) === true;
-                    $enforceOnePrizePerUser = $enforceOnePrizePerUserInDrawing
-                        || $enforceOnePrizePerUserInLottery;
-                    $knownWinnerEmails = [];
-                    $knownWinnerPhones = [];
-
-                    if ($enforceOnePrizePerUser) {
-                        $existingWinnersQuery = $connection->createQueryBuilder()
-                            ->select(
-                                'w.email AS winner_email',
-                                'w.telefon AS winner_phone',
-                                's.email AS submission_email',
-                                's.phone AS submission_phone'
-                            )
-                            ->from((string) $definition['database']['table'], 'w')
-                            ->leftJoin('w', 'loteria_zgloszenia_entries', 's', 's.id = w.zgloszenie')
-                            ->where('w.rodzaj_wygranej = :prize_type_id')
-                            ->setParameter('prize_type_id', $values['rodzaj_wygranej']);
-                        if (!$enforceOnePrizePerUserInLottery) {
-                            $existingWinnersQuery
-                                ->andWhere('w.losowanie = :drawing_id')
-                                ->setParameter('drawing_id', $values['losowanie']);
-                        }
-                        $existingWinners = $existingWinnersQuery->executeQuery()->fetchAllAssociative();
-
-                        foreach ($existingWinners as $existingWinner) {
-                            $winnerEmail = trim((string) ($existingWinner['winner_email'] ?? ''));
-                            $winnerPhone = trim((string) ($existingWinner['winner_phone'] ?? ''));
-                            $normalizedEmail = mb_strtolower($winnerEmail !== ''
-                                ? $winnerEmail
-                                : trim((string) ($existingWinner['submission_email'] ?? '')));
-                            $normalizedPhone = preg_replace('/\D+/', '', $winnerPhone !== ''
-                                ? $winnerPhone
-                                : (string) ($existingWinner['submission_phone'] ?? '')) ?? '';
-                            if ($normalizedEmail !== '') {
-                                $knownWinnerEmails[$normalizedEmail] = true;
-                            }
-                            if ($normalizedPhone !== '') {
-                                $knownWinnerPhones[$normalizedPhone] = true;
-                            }
-                        }
-                    }
-
-                    $validationErrorCount = 0;
-                    foreach ($ticketIds as $ticketId) {
-                        $internalId = (int) ($ticketsByPublicId[$ticketId]['id'] ?? 0);
-                        $createValues = [
-                            'rodzaj' => $winnerKind,
-                            'rodzaj_wygranej' => $values['rodzaj_wygranej'],
-                            'losowanie' => $values['losowanie'],
-                            $isScratchWinner ? 'zdrapka_w_loterii' : 'kupon_w_loterii' => $internalId,
-                            '_winner_import_ticket' => $ticketsByPublicId[$ticketId],
-                            '_winner_import_submission' => $submissionsById[(int) ($ticketsByPublicId[$ticketId]['zgloszenie'] ?? 0)] ?? null,
-                            '_winner_import_prize_type' => [
-                                'id' => $values['rodzaj_wygranej'],
-                                'name' => $selectedPrizeType['name'] ?? '',
-                                'loteria' => $selectedPrizeType['lottery_id'] ?? '',
-                                'status_po_wygraniu_nagrody' => $selectedPrizeType['initial_status'] ?? '',
-                            ],
-                            '_winner_import_skip_drawing_lookup' => true,
-                            '_winner_import_skip_existing_winner_lookup' => true,
-                        ];
-                        $createResult = $this->runCreateActionHandler($connection, $module, $moduleKey, $createValues);
-                        if ($createResult['errors'] !== []) {
-                            foreach ($createResult['errors'] as $createError) {
-                                ++$validationErrorCount;
-                                $importLogDetails[] = [
-                                    'level' => 'error',
-                                    'ticket_id' => $ticketId,
-                                    'message' => (string) $createError,
-                                ];
-                                if ($validationErrorCount <= 20) {
-                                    $errors[] = sprintf('ID %s: %s', $ticketId, $createError);
-                                }
-                            }
-                            continue;
-                        }
-
-                        if ($enforceOnePrizePerUser) {
-                            $normalizedEmail = mb_strtolower(trim((string) ($createResult['values']['email'] ?? '')));
-                            $normalizedPhone = preg_replace('/\D+/', '', (string) ($createResult['values']['telefon'] ?? '')) ?? '';
-                            $matchedIdentityFields = [];
-                            if ($normalizedEmail !== '' && isset($knownWinnerEmails[$normalizedEmail])) {
-                                $matchedIdentityFields[] = 'adres e-mail';
-                            }
-                            if ($normalizedPhone !== '' && isset($knownWinnerPhones[$normalizedPhone])) {
-                                $matchedIdentityFields[] = 'numer telefonu';
-                            }
-
-                            if ($matchedIdentityFields !== []) {
-                                $skippedWinners[$ticketId] = sprintf(
-                                    'uczestnik rozpoznany przez %s wygrał już tę nagrodę %s',
-                                    implode(' i ', $matchedIdentityFields),
-                                    $enforceOnePrizePerUserInLottery
-                                        ? 'w tej loterii'
-                                        : 'w wybranym losowaniu'
-                                );
-                                continue;
-                            }
-
-                            if ($normalizedEmail !== '') {
-                                $knownWinnerEmails[$normalizedEmail] = true;
-                            }
-                            if ($normalizedPhone !== '') {
-                                $knownWinnerPhones[$normalizedPhone] = true;
-                            }
-                        }
-
-                        $preparedWinners[] = $createResult['values'];
-                    }
-                    if ($validationErrorCount > 20) {
-                        $errors[] = sprintf('Pozostałe błędy walidacji: %d.', $validationErrorCount - 20);
-                    }
-                    if ($preparedWinners === [] && $skippedWinners !== []) {
-                        $errors[] = 'Nie dodano żadnego zwycięzcy. Pominięte pozycje:';
-                        foreach ($skippedWinners as $skippedId => $skipReason) {
-                            $errors[] = sprintf('ID %s: %s.', $skippedId, $skipReason);
-                        }
-                    }
-                }
-            }
-
-            if ($errors === [] && $preparedWinners !== []) {
-                $initialStatus = trim((string) ($preparedWinners[0]['stan'] ?? ''));
-                $codeAssignmentService = new WinnerPrizeCodeAssignmentService();
-                if ($codeAssignmentService->shouldAssignCodesForStatus($connection, $initialStatus)) {
-                    $capacity = $codeAssignmentService->validateAvailableCodesForWinners(
-                        $connection,
-                        (int) $values['rodzaj_wygranej'],
-                        count($preparedWinners)
-                    );
-                    if (!$capacity['success']) {
-                        $errors[] = $capacity['error'];
-                    }
-                }
-            }
-
-            if ($errors === [] && $preparedWinners !== []) {
-                $table = (string) ($definition['database']['table'] ?? '');
-                $allowedColumns = array_keys($connection->createSchemaManager()->listTableColumns($table));
-                $allowedMap = array_fill_keys($allowedColumns, true);
-                $importTicketIds = [];
-
-                $connection->beginTransaction();
-                try {
-                    foreach ($preparedWinners as $preparedWinner) {
-                        $preparedWinner['post_create_processing_status'] = 'pending';
-                        $preparedWinner['post_create_send_email'] = $request->request->getBoolean('send_winner_emails') ? 1 : 0;
-                        $preparedWinner['post_create_attempts'] = 0;
-                        $preparedWinner['post_create_last_error'] = null;
-                        $preparedWinner['post_create_locked_at'] = null;
-                        $preparedWinner['post_create_next_attempt_at'] = null;
-                        $preparedWinner['post_create_processed_at'] = null;
-                        $insertValues = array_intersect_key($preparedWinner, $allowedMap);
-                        $connection->insert($table, $insertValues);
-                        $recordId = (int) $connection->lastInsertId();
-                        if ($recordId <= 0) {
-                            throw new \RuntimeException('Nie udało się ustalić ID dodanego zwycięzcy.');
-                        }
-                        $linkedTicketId = (int) ($insertValues[$isScratchWinner ? 'zdrapka_w_loterii' : 'kupon_w_loterii'] ?? 0);
-                        if ($linkedTicketId > 0) {
-                            $importTicketIds[] = $linkedTicketId;
-                        }
-                        $createdRecords[] = $recordId;
-                    }
-                    if ($importTicketIds !== []) {
-                        $ticketColumns = array_keys($connection->createSchemaManager()->listTableColumns($ticketTable));
-                        if (in_array('wygrany', $ticketColumns, true)) {
-                            $connection->createQueryBuilder()
-                                ->update($ticketTable)
-                                ->set('wygrany', '1')
-                                ->where('id IN (:ticket_ids)')
-                                ->setParameter('ticket_ids', array_values(array_unique($importTicketIds)), ArrayParameterType::INTEGER)
-                                ->executeStatement();
-                        }
-                    }
-                    $connection->commit();
-                } catch (\Throwable $exception) {
-                    if ($connection->isTransactionActive()) {
-                        $connection->rollBack();
-                    }
-                    $errors[] = 'Nie udało się dodać zwycięzców. Żaden rekord nie został zapisany.';
-                    $technicalErrors[] = sprintf('%s: %s', $exception::class, $exception->getMessage());
-                }
-
-                if ($errors === []) {
-                    foreach ($skippedWinners as $skippedId => $skipReason) {
-                        $importLogDetails[] = [
-                            'level' => 'warning',
-                            'ticket_id' => (string) $skippedId,
-                            'message' => $skipReason,
-                        ];
-                    }
-                    $currentImportLog = $this->storeWinnerImportLog($request, [
-                        'status' => $skippedWinners !== [] ? 'warning' : 'success',
-                        'source_file' => $sourceFileName,
-                        'winner_kind' => $winnerKind,
-                        'winner_kind_label' => $isScratchWinner ? 'Zdrapka' : 'Los',
-                        'prize_type' => $values['rodzaj_wygranej'],
-                        'prize_name' => (string) ($selectedPrizeType['name'] ?? ''),
-                        'drawing_id' => $values['losowanie'],
-                        'drawing_label' => (string) ($drawingOptions[$values['losowanie']] ?? ''),
-                        'imported_count' => count($createdRecords),
-                        'skipped_count' => count($skippedWinners),
-                        'errors' => [],
-                        'details' => $importLogDetails,
-                        'technical_errors' => [],
-                    ]);
-                    $this->recordModuleChange($request, $moduleKey, 'import_winners_csv', null, [
-                        'imported_rows' => count($createdRecords),
-                        'winner_kind' => $winnerKind,
-                        'prize_type' => $values['rodzaj_wygranej'],
-                        'drawing_id' => $values['losowanie'],
-                        'source_file' => $sourceFileName,
-                        'skipped_rows' => count($skippedWinners),
-                        'skipped_ids' => array_keys($skippedWinners),
-                        'send_winner_emails' => $request->request->getBoolean('send_winner_emails'),
-                    ]);
-
-                    $message = sprintf(
-                        'Dodano %d zwycięzców (%s).',
-                        count($createdRecords),
-                        $sourceFileName
-                    );
-                    $message .= $request->request->getBoolean('send_winner_emails')
-                        ? ' Przydzielanie kodów i przygotowanie maili zostało przekazane do kolejki CRON.'
-                        : ' Przydzielanie kodów zostało przekazane do kolejki CRON.';
-                    if ($skippedWinners !== []) {
-                        $message .= sprintf(' Pominięto %d pozycji: ', count($skippedWinners));
-                        $skippedMessages = [];
-                        foreach ($skippedWinners as $skippedId => $skipReason) {
-                            $skippedMessages[] = sprintf('ID %s: %s.', $skippedId, $skipReason);
-                        }
-                        $message .= implode(' | ', $skippedMessages);
-                    }
-                    if ($currentImportLog !== null) {
-                        $message .= ' Pełny raport jest dostępny w „Logach importu”.';
-                    }
-                    return $skippedWinners !== []
-                        ? $this->redirectWithModuleAlert($request, $moduleKey, 'success', $message)
-                        : $this->buildModuleAlertRedirect($request, $moduleKey, 'success', $message);
-                }
-            }
-
-            if ($errors !== []) {
-                foreach ($skippedWinners as $skippedId => $skipReason) {
-                    $importLogDetails[] = [
-                        'level' => 'warning',
-                        'ticket_id' => (string) $skippedId,
-                        'message' => $skipReason,
-                    ];
-                }
-                $currentImportLog = $this->storeWinnerImportLog($request, [
-                    'status' => 'error',
-                    'source_file' => $sourceFileName,
-                    'winner_kind' => $values['rodzaj'],
-                    'winner_kind_label' => $values['rodzaj'] === 'zdrapka' ? 'Zdrapka' : 'Los',
-                    'prize_type' => $values['rodzaj_wygranej'],
-                    'prize_name' => (string) (($prizeTypesById[$values['rodzaj_wygranej']]['name'] ?? '')),
-                    'drawing_id' => $values['losowanie'],
-                    'drawing_label' => (string) ($drawingOptions[$values['losowanie']] ?? ''),
-                    'imported_count' => 0,
-                    'skipped_count' => count($skippedWinners),
-                    'errors' => array_values(array_unique($errors)),
-                    'details' => $importLogDetails,
-                    'technical_errors' => $technicalErrors,
-                ]);
-            }
-        }
-
-        return $this->render('backend/module_import_winners_csv.html.twig', [
-            'sendWinnerEmails' => $request->request->getBoolean('send_winner_emails'),
-            'user' => $this->authService->user(),
-            'moduleKey' => $moduleKey,
-            'module' => $module,
-            'values' => $values,
-            'errors' => $errors,
-            'prizeTypeOptions' => $prizeTypeOptions,
-            'drawingOptions' => $drawingOptions,
-            'disabledDrawingOptions' => $disabledDrawingOptions,
-            'backUrl' => $this->getModuleListUrl($request, $moduleKey),
-            'currentImportLog' => $currentImportLog,
-            'importLogs' => $this->listWinnerImportLogs(),
-        ]);
-    }
-
-    public function winnerImportLog(Request $request, array $parameters): Response
-    {
-        if (!$this->authService->requireAuth()) {
-            return new RedirectResponse('/cms/login');
-        }
-
-        $moduleKey = (string) ($parameters['moduleKey'] ?? '');
-        if ($moduleKey !== 'zwyciezcy') {
-            return new Response('Nie znaleziono modułu.', Response::HTTP_NOT_FOUND);
-        }
-        if ($response = $this->denyUnlessPermission($moduleKey, PermissionService::ACTION_CREATE)) {
-            return $response;
-        }
-
-        $logId = trim((string) ($parameters['logId'] ?? ''));
-        $log = $this->loadWinnerImportLog($logId);
-        if ($log === null) {
-            return new Response('Nie znaleziono logu importu.', Response::HTTP_NOT_FOUND);
-        }
-
-        if ($request->query->getBoolean('download')) {
-            $response = new Response("\xEF\xBB\xBF" . $this->formatWinnerImportLog($log));
-            $response->headers->set('Content-Type', 'text/plain; charset=utf-8');
-            $response->headers->set('Cache-Control', 'private, no-store');
-            $response->headers->set(
-                'Content-Disposition',
-                sprintf('attachment; filename="import-zwyciezcow-%s.txt"', $logId)
-            );
-
-            return $response;
-        }
-
-        $response = $this->render('backend/winner_import_log.html.twig', [
-            'user' => $this->authService->user(),
-            'moduleKey' => $moduleKey,
-            'log' => $log,
-        ]);
-        $response->headers->set('Cache-Control', 'private, no-store');
-
-        return $response;
-    }
-
-    /**
-     * @return array<int, array{pickup_code: string}>
-     */
-    private function extractWinningCodesFromSpreadsheet(UploadedFile $uploadedFile): array
-    {
-        $spreadsheet = IOFactory::load($uploadedFile->getPathname());
-        $sheet = $spreadsheet->getActiveSheet();
-        $rows = $sheet->toArray(null, true, true, true);
-        if ($rows === []) {
-            return [];
-        }
-
-        $headerRow = array_shift($rows);
-        if (!is_array($headerRow)) {
-            return [];
-        }
-
-        $pickupColumn = null;
-        foreach ($headerRow as $column => $label) {
-            $normalizedLabel = mb_strtolower(trim((string) $label));
-            if ($normalizedLabel === 'pickupcode') {
-                $pickupColumn = (string) $column;
-            }
-        }
-
-        if ($pickupColumn === null) {
-            throw new \RuntimeException('Missing required columns.');
-        }
-
-        $result = [];
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-
-            $pickupCode = trim((string) ($row[$pickupColumn] ?? ''));
-            if ($pickupCode === '') {
-                continue;
-            }
-
-            $result[] = [
-                'pickup_code' => $pickupCode,
-            ];
-        }
-
-        return $result;
-    }
-
-    /**
-     * @param array<int, array{pickup_code: string}> $rows
-     * @return array<int, string>
-     */
-    private function findDuplicateWinningCodeRows(array $rows): array
-    {
-        $seen = [];
-        $duplicates = [];
-        foreach ($rows as $row) {
-            $key = $this->buildWinningCodeKey($row['pickup_code']);
-            if ($key === '') {
-                continue;
-            }
-
-            if (isset($seen[$key])) {
-                $duplicates[$key] = $key;
-                continue;
-            }
-
-            $seen[$key] = true;
-        }
-
-        return array_values($duplicates);
-    }
-
-    private function buildWinningCodeKey(string $pickupCode): string
-    {
-        $pickupCode = trim($pickupCode);
-
-        if ($pickupCode === '') {
-            return '';
-        }
-
-        return $pickupCode;
-    }
-
     private function createEmptySingleModuleRecord(Connection $connection, string $table, string $primaryKey): string|int
     {
         $schemaManager = $connection->createSchemaManager();
@@ -2184,7 +1097,6 @@ class ModuleController extends BaseController
 
         return is_numeric($insertedId) ? (int) $insertedId : (string) $insertedId;
     }
-
 
     public function testFtpSettings(Request $request, array $parameters): Response
     {
@@ -2255,9 +1167,6 @@ class ModuleController extends BaseController
 
         $fields = $this->normalizeFields($definition);
         $fields = $this->hydrateRelationFields($fields);
-        if ($moduleKey === 'zwyciezcy') {
-            $fields = $this->applyWinnerDrawingAvailability($fields, $this->entityManager->getConnection());
-        }
         $fields = $this->filterFieldsForCreate($fields, $module);
         $errors = [];
         $values = [];
@@ -2306,11 +1215,6 @@ class ModuleController extends BaseController
             $errors = array_merge($errors, $result['errors']);
             $connection = $this->entityManager->getConnection();
 
-            if ($moduleKey === 'zwyciezcy' && $request->request->getBoolean('send_winner_emails')
-                && !$request->request->getBoolean('confirm_winner_emails')) {
-                $errors[] = 'Potwierdź wysyłkę maili do zwycięzców przed dodaniem.';
-            }
-
             if ($errors === []) {
                 $createActionResult = $this->runCreateActionHandler($connection, $module, $moduleKey, $values);
                 $values = $createActionResult['values'];
@@ -2344,22 +1248,7 @@ class ModuleController extends BaseController
             if ($errors === []) {
                 $allowedColumns = array_keys($connection->createSchemaManager()->listTableColumns($table));
                 $values = array_intersect_key($values, array_flip($allowedColumns));
-                try {
-                    $lastCreatedId = $this->insertModuleEntry($connection, $moduleKey, $table, $values);
-                } catch (LotteryDailyLimitException $exception) {
-                    return $this->render('backend/module_form.html.twig', [
-                        'user' => $this->authService->user(),
-                        'moduleKey' => $moduleKey,
-                        'module' => $module,
-                        'fields' => $this->hydrateRemoteRelationFields($fields, $this->normalizeRelationFormValues($fields, $values)),
-                        'values' => $this->normalizeRelationFormValues($fields, $values),
-                        'errors' => [$exception->getMessage()],
-                        'alert' => null,
-                        'title' => 'Dodaj wpis',
-                        'submitLabel' => 'Zapisz',
-                        'backUrl' => $backUrl,
-                    ], Response::HTTP_UNPROCESSABLE_ENTITY);
-                }
+                $lastCreatedId = $this->insertModuleEntry($connection, $moduleKey, $table, $values);
                 $recordId = null;
                 if (array_key_exists($primaryKey, $values) && $values[$primaryKey] !== '' && $values[$primaryKey] !== null) {
                     $recordId = (int) $values[$primaryKey];
@@ -2369,28 +1258,7 @@ class ModuleController extends BaseController
                         $recordId = (int) $lastInsertId;
                     }
                 }
-                $postCreateNotices = ['success' => [], 'error' => []];
-                if ($moduleKey === 'zwyciezcy') {
-                    $this->markWinnerLinkedTicketAsWon($connection, $values);
-                    if ($recordId !== null) {
-                        $postCreateFields = $this->hydrateRelationFields($this->normalizeFields($definition));
-                        $postCreateNotices = $this->runWinnerInitialStatusHandlers(
-                            $request,
-                            $moduleKey,
-                            $postCreateFields,
-                            $table,
-                            $primaryKey,
-                            $recordId
-                        );
-                    }
-                }
                 $this->recordModuleChange($request, $moduleKey, 'create', $recordId);
-                if ($postCreateNotices['error'] !== []) {
-                    return $this->buildModuleAlertRedirect($request, $moduleKey, 'error', implode(' ', $postCreateNotices['error']));
-                }
-                if ($postCreateNotices['success'] !== []) {
-                    return $this->buildModuleAlertRedirect($request, $moduleKey, 'success', implode(' ', $postCreateNotices['success']));
-                }
                 $moduleType = strtolower((string) ($module['type'] ?? 'list'));
                 if ($moduleType === 'single' && $recordId !== null) {
                     $query = http_build_query([
@@ -2421,8 +1289,6 @@ class ModuleController extends BaseController
             'errors' => $errors,
             'alert' => $alert,
             'title' => 'Dodaj wpis',
-            'showWinnerEmailOption' => $moduleKey === 'zwyciezcy',
-            'sendWinnerEmails' => $request->request->getBoolean('send_winner_emails'),
             'submitLabel' => 'Zapisz',
             'backUrl' => $backUrl,
         ]);
@@ -2623,12 +1489,8 @@ class ModuleController extends BaseController
         }
 
         if ($request->isMethod('POST')) {
-            
             $result = $this->extractFieldValues($fields, $request, $moduleKey);
             $values = array_merge($existing, $result['values']);
-            if ($moduleKey === 'loteria_zgloszenia') {
-                $values = array_replace($values, LotteryReceiptValidator::normalize($values));
-            }
             $errors = array_merge($errors, $result['errors']);
             $formValues = $this->normalizeRelationFormValues($fields, $values);
 
@@ -2640,42 +1502,7 @@ class ModuleController extends BaseController
             }
 
             if ($errors === []) {
-                $recalculateLotteryTickets = $moduleKey === 'loteria_zgloszenia'
-                    && $this->hasLotteryAllocationInputChanged($existing, $values);
-                $updateValues = $values;
-                if ($moduleKey === 'loteria_ustawienia') {
-                    // The sequence is advanced by frontend submissions. Do not overwrite
-                    // it with the stale value loaded when the settings form was opened.
-                    unset($updateValues['ticket_id_sequence_value']);
-                }
-                if ($moduleKey === 'loteria_zgloszenia') {
-                    try {
-                        $updateSubmission = function () use ($connection, $table, $updateValues, $primaryKey, $id): void {
-                            $connection->update($table, $updateValues, [$primaryKey => $id]);
-                        };
-                        if ($recalculateLotteryTickets) {
-                            $this->rebuildLotteryTickets($connection, $values, $id, $updateSubmission);
-                        } else {
-                            $this->updateLotterySubmission($connection, $table, $values, $id, $updateSubmission);
-                        }
-                    } catch (LotteryDailyLimitException $exception) {
-                        return $this->render('backend/module_form.html.twig', [
-                            'user' => $user,
-                            'moduleKey' => $moduleKey,
-                            'module' => $module,
-                            'fields' => $this->hydrateRemoteRelationFields($fields, $formValues),
-                            'values' => $formValues,
-                            'errors' => [$exception->getMessage()],
-                            'alert' => null,
-                            'readOnly' => $readOnly,
-                            'title' => 'Edytuj wpis',
-                            'submitLabel' => 'Zapisz zmiany',
-                            'backUrl' => $backUrl,
-                        ], Response::HTTP_UNPROCESSABLE_ENTITY);
-                    }
-                } else {
-                    $connection->update($table, $updateValues, [$primaryKey => $id]);
-                }
+                $connection->update($table, $values, [$primaryKey => $id]);
                 $onChangeNotices = $this->runOnChangeHandlers($request, $moduleKey, $fields, $existing, $values, $id);
                 $changeSet = $this->buildChangeSet($fields, $existing, $values);
                 $this->recordModuleChange($request, $moduleKey, 'edit', $id, $changeSet);
@@ -2731,200 +1558,11 @@ class ModuleController extends BaseController
         ]);
     }
 
-    /**
-     * @param array<string, mixed> $existing
-     * @param array<string, mixed> $values
-     */
-    private function hasLotteryAllocationInputChanged(array $existing, array $values): bool
-    {
-        $fields = ['promoted_products_count', 'other_products_count'];
-        if (!LotteryProductAllocation::isProductBased($this->fetchModuleEntry('loteria_ustawienia') ?? [])) {
-            $fields[] = 'purchase_amount';
-        }
-        foreach ($fields as $field) {
-            if (!array_key_exists($field, $values)) {
-                continue;
-            }
-            $old = $field === 'purchase_amount' ? $this->normalizeLotteryAmount($existing[$field] ?? null) : (int) ($existing[$field] ?? 0);
-            $new = $field === 'purchase_amount' ? $this->normalizeLotteryAmount($values[$field]) : (int) ($values[$field] ?? 0);
-            if ($old !== $new) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** Inserts individual CMS/CSV entries through the same limit as frontend grants. */
     private function insertModuleEntry(Connection $connection, string $moduleKey, string $table, array &$values): string
     {
-        $lastCreatedId = '';
-        $insertEntry = function () use ($connection, $table, &$values, &$lastCreatedId): void {
-            $connection->insert($table, $values);
-            $lastCreatedId = (string) $connection->lastInsertId();
-        };
-        if (!in_array($moduleKey, ['loteria_losy', 'loteria_zdrapki', 'loteria_zgloszenia'], true)) {
-            $insertEntry();
-            return $lastCreatedId;
-        }
-        $timezone = $this->config['app']['timezone'] ?? 'Europe/Warsaw';
-        $grantedAt = new \DateTimeImmutable(($values['submitted_at'] ?? '') ?: 'now', new \DateTimeZone($timezone));
-        $values['submitted_at'] = $grantedAt->format('Y-m-d H:i:s');
-        $values['email'] = mb_strtolower(trim((string) ($values['email'] ?? '')));
-        $values['phone'] = LotteryRegistrationValidator::normalizePhone((string) ($values['phone'] ?? ''));
-        $type = $moduleKey === 'loteria_losy' ? 'tickets' : 'scratchcards';
-        $isSubmission = $moduleKey === 'loteria_zgloszenia';
-        if ($isSubmission) {
-            $values = array_replace($values, LotteryReceiptValidator::normalize($values));
-        }
-        $allocationSettings = $this->fetchModuleEntry('loteria_ustawienia') ?? [];
-        $purchase = $isSubmission ? array_merge(['table' => $table], LotteryProductAllocation::quantities($values)) : null;
-        (new LotteryDailyEntryLimitService($connection, $timezone))->allocate(
-            $allocationSettings,
-            [$type => $table],
-            $isSubmission ? [] : [$type => 1],
-            $grantedAt,
-            ['email' => $values['email'], 'phone' => $values['phone']],
-            static function (array $counts) use ($insertEntry, $isSubmission, &$values): void {
-                if ($isSubmission) {
-                    $values['allocated_promoted_products_count'] = $counts['allocated_promoted_products_count'];
-                    $values['allocated_other_products_count'] = $counts['allocated_other_products_count'];
-                }
-                $insertEntry();
-            },
-            null,
-            $purchase,
-            $isSubmission ? array_merge(['table' => $table], LotteryReceiptValidator::normalize($values)) : null
-        );
-        return $lastCreatedId;
-    }
+        $connection->insert($table, $values);
 
-    /** Updates receipt/status fields without regenerating existing entries. */
-    private function updateLotterySubmission(Connection $connection, string $table, array $submission, int $submissionId, callable $updateSubmission): void
-    {
-        (new LotteryDailyEntryLimitService($connection))->allocate(
-            [], [], [], new \DateTimeImmutable(), [],
-            static function (array $_counts) use ($updateSubmission): void { $updateSubmission(); },
-            $submissionId, null,
-            array_merge(['table' => $table], LotteryReceiptValidator::normalize($submission))
-        );
-    }
-
-    /**
-     * @param array<string, mixed> $submission
-     */
-    private function rebuildLotteryTickets(Connection $connection, array $submission, int $submissionId, callable $updateSubmission): void
-    {
-        $ticketDefinition = $this->resolveModuleDefinition('loteria_losy');
-        $ticketTable = $ticketDefinition ? ($ticketDefinition['database']['table'] ?? null) : null;
-        $scratchDefinition = $this->resolveModuleDefinition('loteria_zdrapki');
-        $scratchTable = $scratchDefinition ? ($scratchDefinition['database']['table'] ?? null) : null;
-        if (!$ticketTable && !$scratchTable) {
-            $this->updateLotterySubmission($connection, $this->resolveModuleDefinition('loteria_zgloszenia')['database']['table'], $submission, $submissionId, $updateSubmission);
-            return;
-        }
-
-        $settingsEntry = $this->fetchModuleEntry('loteria_ustawienia') ?? [];
-        $amountPerTicket = 50.0;
-        if (isset($settingsEntry['amount_per_ticket']) && is_numeric($settingsEntry['amount_per_ticket'])) {
-            $amountPerTicket = (float) $settingsEntry['amount_per_ticket'];
-        }
-        if ($amountPerTicket <= 0) {
-            $amountPerTicket = 50.0;
-        }
-        $entryGenerationMode = $this->resolveLotteryEntryGenerationMode($settingsEntry);
-        $shouldGenerateTickets = $this->shouldGenerateLotteryTickets($entryGenerationMode);
-        $shouldGenerateScratchcards = $this->shouldGenerateLotteryScratchcards($entryGenerationMode);
-
-        $purchaseAmount = $this->normalizeLotteryAmount($submission['purchase_amount'] ?? null) ?? 0.0;
-        $ticketCount = (int) floor($purchaseAmount / $amountPerTicket);
-        if (isset($settingsEntry['max_tickets_per_receipt']) && is_numeric($settingsEntry['max_tickets_per_receipt'])) {
-            $maxTicketsPerReceipt = (int) $settingsEntry['max_tickets_per_receipt'];
-            if ($maxTicketsPerReceipt > 0) {
-                $ticketCount = min($ticketCount, $maxTicketsPerReceipt);
-            }
-        }
-        if (LotteryProductAllocation::isProductBased($settingsEntry)) {
-            $ticketCount = LotteryProductAllocation::requestedEntryCount($submission, $settingsEntry);
-        }
-
-        $submittedAt = $submission['submitted_at'] ?? null;
-        if ($submittedAt instanceof \DateTimeInterface) {
-            $submittedAt = $submittedAt->format('Y-m-d H:i:s');
-        }
-        if (!is_string($submittedAt) || $submittedAt === '') {
-            $submittedAt = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
-        }
-
-        $email = $submission['email'] ?? null;
-        $phone = $submission['phone'] ?? null;
-        (new LotteryDailyEntryLimitService($connection, $this->config['app']['timezone'] ?? 'Europe/Warsaw'))->allocate(
-            $settingsEntry,
-            ['tickets' => $ticketTable, 'scratchcards' => $scratchTable],
-            [
-                'tickets' => $ticketTable && $shouldGenerateTickets ? max(0, $ticketCount) : 0,
-                'scratchcards' => $scratchTable && $shouldGenerateScratchcards ? max(0, $ticketCount) : 0,
-            ],
-            new \DateTimeImmutable($submittedAt, new \DateTimeZone($this->config['app']['timezone'] ?? 'Europe/Warsaw')),
-            ['email' => $email, 'phone' => $phone],
-            function (array $counts) use ($connection, $ticketTable, $scratchTable, $submissionId, $settingsEntry, $email, $phone, $submittedAt, $updateSubmission): void {
-                $updateSubmission();
-                $connection->update($this->resolveModuleDefinition('loteria_zgloszenia')['database']['table'], [
-                    'allocated_promoted_products_count' => $counts['allocated_promoted_products_count'],
-                    'allocated_other_products_count' => $counts['allocated_other_products_count'],
-                ], ['id' => $submissionId]);
-                if ($ticketTable) {
-                    $connection->delete($ticketTable, ['zgloszenie' => $submissionId]);
-                }
-                if ($scratchTable) {
-                    $connection->delete($scratchTable, ['zgloszenie' => $submissionId]);
-                }
-                $this->createLotteryEntriesWithIdentifiers(
-                    $connection,
-                    array_values(array_filter([$ticketTable, $scratchTable], static fn(mixed $table): bool => is_string($table) && $table !== '')),
-                    $submissionId,
-                    max($counts['tickets'], $counts['scratchcards']),
-                    $settingsEntry,
-                    function (string $ticketId, int $index) use (
-                        $connection,
-                        $ticketTable,
-                        $scratchTable,
-                        $counts,
-                        $submissionId,
-                        $email,
-                        $phone,
-                        $submittedAt
-                    ): void {
-                        $payload = [
-                            'ticket_id' => $ticketId,
-                            'zgloszenie' => $submissionId,
-                            'email' => $email !== '' ? $email : null,
-                            'phone' => $phone !== '' ? $phone : null,
-                            'submitted_at' => $submittedAt,
-                            'wygrany' => 0,
-                        ];
-                        if ($ticketTable && $index <= $counts['tickets']) {
-                            $ticketPayload = $payload;
-                            $ticketPayload['status'] = 'nie_sprawdzany';
-                            $connection->insert($ticketTable, $ticketPayload);
-                        }
-                        if ($scratchTable && $index <= $counts['scratchcards']) {
-                            $scratchPayload = $payload;
-                            $scratchPayload['status'] = 'Nie zdrapana';
-                            $connection->insert($scratchTable, $scratchPayload);
-                        }
-                    }
-                );
-            },
-            $submissionId,
-            array_merge(
-                ['table' => $this->resolveModuleDefinition('loteria_zgloszenia')['database']['table']],
-                LotteryProductAllocation::quantities($submission)
-            ),
-            array_merge(
-                ['table' => $this->resolveModuleDefinition('loteria_zgloszenia')['database']['table']],
-                LotteryReceiptValidator::normalize($submission)
-            )
-        );
+        return (string) $connection->lastInsertId();
     }
 
     /**
@@ -3046,44 +1684,6 @@ class ModuleController extends BaseController
         ];
     }
 
-    /**
-     * @param array<int, array<string, mixed>> $fields
-     * @return array{success: array<int, string>, error: array<int, string>}
-     */
-    private function runWinnerInitialStatusHandlers(
-        Request $request,
-        string $moduleKey,
-        array $fields,
-        string $table,
-        string $primaryKey,
-        int $recordId
-    ): array {
-        $winner = $this->entityManager->getConnection()->createQueryBuilder()
-            ->select('*')
-            ->from($table)
-            ->where($primaryKey . ' = :id')
-            ->setParameter('id', $recordId)
-            ->setMaxResults(1)
-            ->executeQuery()
-            ->fetchAssociative();
-
-        if (!is_array($winner) || $winner === []) {
-            return ['success' => [], 'error' => []];
-        }
-
-        $initialStatus = trim((string) ($winner['stan'] ?? ''));
-        if ($initialStatus === '') {
-            return ['success' => [], 'error' => []];
-        }
-
-        $previousWinner = $winner;
-        $previousWinner['stan'] = '';
-        $winner['_send_status_email_after_creation'] = $request->request->getBoolean('send_winner_emails')
-            && $request->request->getBoolean('confirm_winner_emails');
-
-        return $this->runOnChangeHandlers($request, $moduleKey, $fields, $previousWinner, $winner, $recordId);
-    }
-
     private function resolveOnChangeController(string $moduleKey): ?ModuleOnChangeController
     {
         if (array_key_exists($moduleKey, $this->onChangeControllers)) {
@@ -3181,80 +1781,6 @@ class ModuleController extends BaseController
         }
 
         return $controllerClass;
-    }
-
-    private function normalizeLotteryAmount(mixed $amount): ?float
-    {
-        if ($amount === null) {
-            return null;
-        }
-
-        if (is_string($amount)) {
-            $amount = trim($amount);
-        }
-
-        if ($amount === '') {
-            return null;
-        }
-
-        if (!is_numeric($amount)) {
-            return null;
-        }
-
-        return (float) $amount;
-    }
-
-    /**
-     * @param array<string, mixed> $existing
-     * @param array<string, mixed> $values
-     */
-    private function shouldTriggerWinnerVerificationActions(string $moduleKey, array $existing, array $values): bool
-    {
-        DebugCollector::addDump($moduleKey, 'winner_verification.module_key');
-
-        if (!in_array($moduleKey, ['zwyciezcy'], true)) {
-            DebugCollector::addDump(false, 'winner_verification.result');
-            return false;
-        }
-
-        $previousStatus = trim((string) ($existing['stan'] ?? ''));
-        $newStatus = trim((string) ($values['stan'] ?? ''));
-        DebugCollector::addDump($previousStatus, 'winner_verification.previous_status');
-        DebugCollector::addDump($newStatus, 'winner_verification.new_status');
-
-        if ($newStatus !== 'sprawdzone' || $previousStatus === 'sprawdzone') {
-            DebugCollector::addDump(false, 'winner_verification.result');
-            return false;
-        }
-
-        $emailSentAt = trim((string) ($values['email_o_poprawnej_weryfikacji_wyslany_at'] ?? ''));
-        DebugCollector::addDump($emailSentAt, 'winner_verification.email_sent_at');
-
-        if ($emailSentAt === '') {
-            DebugCollector::addDump(true, 'winner_verification.result');
-            return true;
-        }
-
-        DebugCollector::addDump($emailSentAt, 'data');
-        $hasZeroDate = preg_match('/^0{4}-0{2}-0{2}(?:\s+0{2}:0{2}:0{2})?$/', $emailSentAt) === 1;
-        DebugCollector::addDump($hasZeroDate, 'winner_verification.has_zero_date');
-
-        if (!$hasZeroDate) {
-            DebugCollector::addDump(false, 'winner_verification.result');
-            return false;
-        }
-
-        $result = true;
-        if ($moduleKey === 'zwyciezcy') {
-            $hasAssignedWinningCodes = $this->hasAssignedWinningCodes($values['kod_z_listy_wygranych'] ?? null);
-            DebugCollector::addDump($hasAssignedWinningCodes, 'winner_verification.has_assigned_winning_codes');
-            $result = !$hasAssignedWinningCodes;
-        } else {
-            $result = true;
-        }
-        DebugCollector::addDump($result, 'winner_verification.result');
-
-        return $result;
     }
 
     public function view(Request $request, array $parameters): Response
@@ -3462,25 +1988,6 @@ class ModuleController extends BaseController
         ]);
     }
 
-    /** @param array<string, mixed> $values */
-    private function markWinnerLinkedTicketAsWon(Connection $connection, array $values): void
-    {
-        $winnerKind = trim((string) ($values['rodzaj'] ?? ''));
-        $ticketColumn = $winnerKind === 'zdrapka' ? 'zdrapka_w_loterii' : 'kupon_w_loterii';
-        $ticketId = (int) ($values[$ticketColumn] ?? 0);
-        if ($ticketId <= 0 || !in_array($winnerKind, ['los', 'zdrapka'], true)) {
-            return;
-        }
-
-        $ticketTable = $winnerKind === 'zdrapka' ? 'loteria_zdrapki_entries' : 'loteria_losy_entries';
-        $ticketColumns = array_keys($connection->createSchemaManager()->listTableColumns($ticketTable));
-        if (!in_array('wygrany', $ticketColumns, true)) {
-            return;
-        }
-
-        $connection->update($ticketTable, ['wygrany' => 1], ['id' => $ticketId]);
-    }
-
     /**
      * @param array<string, mixed> $module
      * @param array<string, mixed> $values
@@ -3561,98 +2068,6 @@ class ModuleController extends BaseController
         return new Response(json_encode(['items' => $items], JSON_UNESCAPED_UNICODE), Response::HTTP_OK, [
             'Content-Type' => 'application/json',
         ]);
-    }
-
-    public function winnersPdf(Request $request, array $parameters): Response
-    {
-        if (!$this->authService->requireAuth()) {
-            return new RedirectResponse('/cms/login');
-        }
-
-        return new Response('Moduł loterii został usunięty.', Response::HTTP_GONE);
-    }
-
-    private function maskEmailForWinnersPdf(string $email): string
-    {
-        $email = trim($email);
-        if ($email === '' || strpos($email, '@') === false) {
-            return '';
-        }
-
-        [$localPart, $domainPart] = explode('@', $email, 2);
-        if ($localPart === '' || $domainPart === '') {
-            return '';
-        }
-
-        $maskSegment = static function (string $value): string {
-            $value = trim($value);
-            if ($value === '') {
-                return '';
-            }
-
-            $length = mb_strlen($value);
-            if ($length <= 1) {
-                return mb_substr($value, 0, 1) . '***';
-            }
-
-            return mb_substr($value, 0, 1) . '***' . mb_substr($value, -1, 1);
-        };
-
-        $maskedLocal = $maskSegment($localPart);
-        $domainLabels = explode('.', $domainPart);
-        $domainName = (string) array_shift($domainLabels);
-        $maskedDomainName = $maskSegment($domainName);
-
-        $domainSuffix = implode('.', array_filter($domainLabels, static fn ($part): bool => trim($part) !== ''));
-        if ($maskedLocal === '' || $maskedDomainName === '') {
-            return '';
-        }
-
-        if ($domainSuffix === '') {
-            return $maskedLocal . '@' . $maskedDomainName;
-        }
-
-        return $maskedLocal . '@' . $maskedDomainName . '.' . $domainSuffix;
-    }
-
-    public function delete(Request $request, array $parameters): Response
-    {
-        if (!$this->authService->requireAuth()) {
-            return new RedirectResponse('/cms/login');
-        }
-
-        if (!$request->isMethod('POST')) {
-            return new Response('Niepoprawna metoda.', Response::HTTP_METHOD_NOT_ALLOWED);
-        }
-
-        $moduleKey = (string) ($parameters['moduleKey'] ?? '');
-        $definition = $this->loadModuleDefinition($moduleKey);
-
-        if (!$definition) {
-            return new Response('Nie znaleziono modułu.', Response::HTTP_NOT_FOUND);
-        }
-
-        if ($response = $this->denyUnlessPermission($moduleKey, PermissionService::ACTION_DELETE)) {
-            return $response;
-        }
-
-        if (!$this->moduleAllowsConfiguredAction($definition['module'], 'delete')) {
-            return new Response('Brak uprawnień.', Response::HTTP_FORBIDDEN);
-        }
-
-        $database = $definition['database'];
-        $table = $database['table'] ?? null;
-        $primaryKey = $database['primary_key'] ?? 'id';
-        $id = (int) ($parameters['id'] ?? 0);
-
-        if (!$table) {
-            return new Response('Brak konfiguracji bazy danych.', Response::HTTP_BAD_REQUEST);
-        }
-
-        $this->entityManager->getConnection()->delete($table, [$primaryKey => $id]);
-        $this->recordModuleChange($request, $moduleKey, 'delete', $id);
-
-        return new RedirectResponse($this->getModuleListUrl($request, $moduleKey));
     }
 
     public function bulkDelete(Request $request, array $parameters): Response
@@ -4461,12 +2876,6 @@ class ModuleController extends BaseController
             }
 
             if (in_array($type, ['number', 'integer', 'float', 'decimal'], true)) {
-                if ($moduleKey === 'loteria_ustawienia'
-                    && in_array($name, ['promoted_product_entry_count', 'other_product_entry_count', 'amount_per_ticket', 'max_tickets_per_receipt'], true)
-                    && !$request->request->has($name)
-                ) {
-                    continue;
-                }
                 $value = str_replace(',', '.', trim((string) $request->request->get($name, '')));
                 if ($value === '') {
                     $values[$name] = null;
@@ -4480,21 +2889,6 @@ class ModuleController extends BaseController
 
                 if (!$isValidNumber) {
                     $errors[] = sprintf('Pole "%s" musi zawierać prawidłową liczbę.', $field['label'] ?? $name);
-                    continue;
-                }
-
-                if ($moduleKey === 'loteria_ustawienia'
-                    && in_array($name, ['daily_ticket_limit', 'daily_scratchcard_limit', 'daily_product_limit', 'promoted_product_entry_count', 'other_product_entry_count'], true)
-                    && ((float) $value < 0 || (float) $value > 2147483647)
-                ) {
-                    $errors[] = sprintf('Pole "%s" musi zawierać liczbę całkowitą od 0 do 2147483647.', $field['label'] ?? $name);
-                    continue;
-                }
-                if ($moduleKey === 'loteria_zgloszenia'
-                    && in_array($name, ['promoted_products_count', 'other_products_count'], true)
-                    && ((float) $value < 0 || (float) $value > 2147483647)
-                ) {
-                    $errors[] = sprintf('Pole "%s" musi zawierać nieujemną liczbę całkowitą.', $field['label'] ?? $name);
                     continue;
                 }
 
@@ -4513,7 +2907,7 @@ class ModuleController extends BaseController
             }
 
             $values[$name] = match ($type) {
-                'checkbox', 'boolean', 'boolean_select' => $request->request->getBoolean($name),
+                'checkbox', 'boolean', 'boolean_select' => (int) $request->request->getBoolean($name),
                 default => trim((string) $request->request->get($name, '')),
             };
         }
@@ -4652,50 +3046,6 @@ class ModuleController extends BaseController
             if ($optionMeta !== []) {
                 $field['option_meta'] = $optionMeta;
             }
-            $fields[$index] = $field;
-        }
-
-        return $fields;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $fields
-     * @return array<int, array<string, mixed>>
-     */
-    private function applyWinnerDrawingAvailability(array $fields, Connection $connection): array
-    {
-        $drawings = (new WinnerDrawingAvailabilityService())->fetchDrawingOptions($connection);
-
-        foreach ($fields as $index => $field) {
-            if (
-                trim((string) ($field['name'] ?? '')) !== 'losowanie'
-                || trim((string) ($field['module'] ?? '')) !== 'losowania'
-            ) {
-                continue;
-            }
-
-            $options = [];
-            $optionMeta = is_array($field['option_meta'] ?? null) ? $field['option_meta'] : [];
-            foreach ($drawings as $drawing) {
-                $drawingId = (string) $drawing['id'];
-                $drawingLabel = trim((string) ($drawing['name'] ?? ''));
-                if ($drawingLabel === '') {
-                    $drawingLabel = $drawingId;
-                }
-                $drawingDate = trim((string) ($drawing['drawing_date'] ?? ''));
-                if ($drawingDate !== '') {
-                    $drawingLabel .= ' — ' . $drawingDate;
-                }
-
-                $options[$drawingId] = $this->formatRelationLabel($field, $drawingLabel);
-                $optionMeta[$drawingId] = array_merge(
-                    is_array($optionMeta[$drawingId] ?? null) ? $optionMeta[$drawingId] : [],
-                    ['disabled' => !($drawing['selectable'] ?? false)]
-                );
-            }
-
-            $field['options'] = $options;
-            $field['option_meta'] = $optionMeta;
             $fields[$index] = $field;
         }
 
@@ -5075,7 +3425,6 @@ class ModuleController extends BaseController
             'target_field' => $targetField,
         ];
     }
-
 
     /** @param array<string, mixed> $field */
     private function isRelatedField(array $field): bool
@@ -5535,7 +3884,6 @@ class ModuleController extends BaseController
         return $rows;
     }
 
-
     private function resolveRelationOrderDirection(array $field): string
     {
         $direction = strtolower(trim((string) ($field['relation_sort_direction'] ?? 'asc')));
@@ -5713,31 +4061,6 @@ class ModuleController extends BaseController
         return $this->formatRelationLabel($field, (string) $labelValue);
     }
 
-    private function hasAssignedWinningCodes(mixed $value): bool
-    {
-        if (is_array($value)) {
-            foreach ($value as $item) {
-                if (trim((string) $item) !== '') {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        $value = trim((string) $value);
-        if ($value === '' || $value === '0') {
-            return false;
-        }
-
-        $decoded = json_decode($value, true);
-        if (is_array($decoded)) {
-            return $this->hasAssignedWinningCodes($decoded);
-        }
-
-        return true;
-    }
-
     /**
      * @param array<string, mixed> $field
      */
@@ -5842,7 +4165,6 @@ class ModuleController extends BaseController
 
         return $normalized;
     }
-
 
     /**
      * @param array<string, mixed> $fileEntry
@@ -6089,25 +4411,6 @@ class ModuleController extends BaseController
         return false;
     }
 
-    private function fieldUsesExternalFtp(string $moduleKey, string $fieldName): bool
-    {
-        $definition = $this->loadModuleDefinition($moduleKey);
-        $fields = is_array($definition) ? ($definition['fields'] ?? []) : [];
-        if (!is_array($fields)) {
-            return false;
-        }
-
-        foreach ($fields as $field) {
-            if (!is_array($field) || ($field['name'] ?? null) !== $fieldName) {
-                continue;
-            }
-
-            return (bool) ($field['external_ftp'] ?? false);
-        }
-
-        return false;
-    }
-
     private function buildModuleUploadRemotePath(string $moduleKey, string $filename): string
     {
         return 'modules/' . $moduleKey . '/' . rawurldecode($filename);
@@ -6275,31 +4578,6 @@ class ModuleController extends BaseController
                     $this->recordModuleChange($calledRequest, $calledModuleKey, $action, $calledRecordId);
                 }
             ),
-            'zwyciezcy' => new WinnersModuleListActionController(
-                $this->entityManager,
-                $this->mailer,
-                fn(Request $calledRequest, string $calledModuleKey, string $status, string $message): RedirectResponse => $this->buildModuleAlertRedirect($calledRequest, $calledModuleKey, $status, $message),
-                function (Request $calledRequest, string $calledModuleKey, string $action, ?int $calledRecordId): void {
-                    $this->recordModuleChange($calledRequest, $calledModuleKey, $action, $calledRecordId);
-                }
-            ),
-            'losowania' => new DrawingsModuleListActionController(function (string $recordId, array $definition): array {
-                $table = $definition['database']['table'] ?? null;
-                if (!is_string($table) || $table === '') {
-                    return [];
-                }
-
-                $record = $this->entityManager->getConnection()->createQueryBuilder()
-                    ->select('*')
-                    ->from($table)
-                    ->where('id = :id')
-                    ->setParameter('id', $recordId)
-                    ->setMaxResults(1)
-                    ->executeQuery()
-                    ->fetchAssociative();
-
-                return is_array($record) ? $record : [];
-            }, $this->entityManager->getConnection()),
             default => null,
         };
 
@@ -6362,416 +4640,8 @@ class ModuleController extends BaseController
     }
 
     /**
-     * @param array{module: array<string, mixed>, database: array<string, mixed>} $definition
-     */
-    private function resendScratchcardsLinkEmail(Request $request, string $moduleKey, string $recordId, array $definition): ?Response
-    {
-        $database = $definition['database'];
-        $table = $database['table'] ?? null;
-        $primaryKey = $database['primary_key'] ?? 'id';
-
-        if (!is_string($table) || $table === '') {
-            return $this->buildModuleAlertRedirect($request, $moduleKey, 'error', 'Brak konfiguracji bazy danych.');
-        }
-
-        $connection = $this->entityManager->getConnection();
-        $submission = $connection->createQueryBuilder()
-            ->select('*')
-            ->from($table)
-            ->where($primaryKey . ' = :id')
-            ->setParameter('id', $recordId)
-            ->setMaxResults(1)
-            ->executeQuery()
-            ->fetchAssociative();
-
-        if (!$submission) {
-            return $this->buildModuleAlertRedirect($request, $moduleKey, 'error', 'Nie znaleziono zgłoszenia.');
-        }
-
-        $recipient = trim((string) ($submission['email'] ?? ''));
-        if ($recipient === '') {
-            return $this->buildModuleAlertRedirect($request, $moduleKey, 'error', 'Brak adresu e-mail dla tego zgłoszenia.');
-        }
-
-        $token = trim((string) ($submission['scratch_link_token'] ?? ''));
-        if ($token === '') {
-            $token = $this->resolveScratchcardsTokenForEmail($connection, $table, $recipient);
-            $connection->update($table, [
-                'scratch_link_token' => $token,
-            ], [
-                $primaryKey => (int) $submission[$primaryKey],
-            ]);
-        }
-
-        $sentAt = new \DateTimeImmutable();
-        $scratchLink = $this->buildScratchcardsLink($request, $token);
-        $sendResult = $this->sendScratchcardsReminderEmail($submission, $scratchLink, $sentAt);
-
-        if (!$sendResult['success']) {
-            $message = 'Nie udało się ponownie wysłać e-maila z linkiem do zdrapek.';
-            $error = $sendResult['error'] ?? null;
-            if (is_string($error) && $error !== '') {
-                $message .= ' Powód: ' . $error;
-            }
-            return $this->buildModuleAlertRedirect($request, $moduleKey, 'error', $message);
-        }
-
-        $connection->update($table, [
-            'reminder_sent_at' => $sentAt->format('Y-m-d H:i:s'),
-        ], [
-            $primaryKey => (int) $submission[$primaryKey],
-        ]);
-
-        $this->recordModuleChange($request, $moduleKey, 'resend_scratchcards_link', (int) $submission[$primaryKey]);
-
-        return $this->buildModuleAlertRedirect($request, $moduleKey, 'success', 'Wiadomość z linkiem do zdrapek została wysłana ponownie.');
-    }
-
-    /**
-     * @param array{module: array<string, mixed>, database: array<string, mixed>} $definition
-     */
-    private function sendPendingWinnerPrizes(Request $request, string $moduleKey, string $recordId, array $definition): ?Response
-    {
-        if ($moduleKey !== 'zwyciezcy') {
-            return $this->buildModuleAlertRedirect($request, $moduleKey, 'error', 'Ta akcja jest dostępna tylko dla modułu Zwycięzcy.');
-        }
-
-        $database = $definition['database'];
-        $table = $database['table'] ?? null;
-        if (!is_string($table) || $table === '') {
-            return $this->buildModuleAlertRedirect($request, $moduleKey, 'error', 'Brak konfiguracji bazy danych.');
-        }
-
-        $connection = $this->entityManager->getConnection();
-        $winners = $connection->createQueryBuilder()
-            ->select('*')
-            ->from($table)
-            ->where('stan IN (:statuses)')
-            ->andWhere('(kod_z_listy_wygranych IS NULL OR kod_z_listy_wygranych = 0 OR kod_z_listy_wygranych = :empty)')
-            ->setParameter('statuses', ['sprawdzone', 'ai_sprawdzone'], ArrayParameterType::STRING)
-            ->setParameter('empty', '')
-            ->orderBy('id', 'ASC')
-            ->executeQuery()
-            ->fetchAllAssociative();
-
-        if (!is_array($winners) || $winners === []) {
-            return $this->buildModuleAlertRedirect(
-                $request,
-                $moduleKey,
-                'success',
-                'Nie znaleziono zgłoszeń ze statusem „Sprawdzone” lub „AI Sprawdzone - poprawnie” bez przypisanego kodu.'
-            );
-        }
-
-        $sentCount = 0;
-        $errors = [];
-
-        foreach ($winners as $winner) {
-            $winnerId = (int) ($winner['id'] ?? 0);
-            if ($winnerId <= 0) {
-                continue;
-            }
-
-            $emailResult = $this->sendWinnerCodeEmailWithError($winner, $request);
-            if ($emailResult['success']) {
-                $sentCount++;
-                continue;
-            }
-
-            $errorReason = trim((string) ($emailResult['error'] ?? 'Nieznany błąd.'));
-            $errors[] = '#' . $winnerId . ': ' . $errorReason;
-        }
-
-        if ($sentCount > 0) {
-            $this->recordModuleChange($request, $moduleKey, 'send_pending_winner_prizes', null);
-        }
-
-        if ($sentCount === 0) {
-            $message = 'Nie udało się wysłać żadnej zaległej wygranej.';
-            if ($errors !== []) {
-                $message .= ' ' . implode(' | ', array_slice($errors, 0, 3));
-            }
-
-            return $this->buildModuleAlertRedirect($request, $moduleKey, 'error', $message);
-        }
-
-        $message = 'Wysłano zaległe wygrane: ' . $sentCount . '.';
-        if ($errors !== []) {
-            $message .= ' Błędy: ' . count($errors) . '.';
-            $message .= ' ' . implode(' | ', array_slice($errors, 0, 3));
-        }
-
-        return $this->buildModuleAlertRedirect($request, $moduleKey, 'success', $message);
-    }
-
-    /**
-     * @param array{module: array<string, mixed>, database: array<string, mixed>} $definition
-     */
-    private function rejectTicketsForRejectedScratchcards(Request $request, string $moduleKey, string $recordId, array $definition): ?Response
-    {
-        if ($moduleKey !== 'loteria_losy') {
-            return $this->buildModuleAlertRedirect($request, $moduleKey, 'error', 'Ta akcja jest dostępna tylko dla modułu Loteria losy.');
-        }
-
-        $ticketTable = $definition['database']['table'] ?? null;
-        if (!is_string($ticketTable) || $ticketTable === '') {
-            return $this->buildModuleAlertRedirect($request, $moduleKey, 'error', 'Brak konfiguracji bazy danych dla modułu Loteria losy.');
-        }
-
-        $winnersDefinition = $this->loadModuleDefinition('zwyciezcy');
-        if ($winnersDefinition === null) {
-            return $this->buildModuleAlertRedirect($request, $moduleKey, 'error', 'Nie znaleziono definicji modułu Zwycięzcy.');
-        }
-
-        $winnersTable = $winnersDefinition['database']['table'] ?? null;
-        if (!is_string($winnersTable) || $winnersTable === '') {
-            return $this->buildModuleAlertRedirect($request, $moduleKey, 'error', 'Brak konfiguracji bazy danych dla modułu Zwycięzcy.');
-        }
-
-        $connection = $this->entityManager->getConnection();
-        $submissionIds = $connection->createQueryBuilder()
-            ->select('DISTINCT zgloszenie')
-            ->from($winnersTable)
-            ->where('stan = :status')
-            ->andWhere('zgloszenie IS NOT NULL')
-            ->andWhere('zgloszenie <> 0')
-            ->andWhere("COALESCE(rodzaj, '') IN (:kinds)")
-            ->setParameter('status', 'odrzucone')
-            ->setParameter('kinds', ['zdrapka', ''], ArrayParameterType::STRING)
-            ->executeQuery()
-            ->fetchFirstColumn();
-
-        $submissionIds = array_values(array_unique(array_filter(array_map('intval', $submissionIds), static fn(int $id): bool => $id > 0)));
-        if ($submissionIds === []) {
-            return $this->buildModuleAlertRedirect(
-                $request,
-                $moduleKey,
-                'success',
-                'Nie znaleziono odrzuconych zdrapek z przypisanym zgłoszeniem.'
-            );
-        }
-
-        $updatedCount = $connection->createQueryBuilder()
-            ->update($ticketTable)
-            ->set('status', ':status')
-            ->where('zgloszenie IN (:submissionIds)')
-            ->setParameter('status', 'odrzucony')
-            ->setParameter('submissionIds', $submissionIds, ArrayParameterType::INTEGER)
-            ->executeStatement();
-
-        if ($updatedCount > 0) {
-            $this->recordModuleChange($request, $moduleKey, 'reject_tickets_for_rejected_scratchcards', null);
-        }
-
-        return $this->buildModuleAlertRedirect(
-            $request,
-            $moduleKey,
-            'success',
-            sprintf(
-                'Zaktualizowano losy dla %d zgłoszeń. Ustawiono status „Odrzucony” dla %d losów.',
-                count($submissionIds),
-                $updatedCount
-            )
-        );
-    }
-
-    private function buildScratchcardsLink(Request $request, string $token): string
-    {
-        $baseUrl = rtrim($request->getSchemeAndHttpHost(), '/');
-
-        return $baseUrl . '/loteria/zdrapki/' . urlencode($token);
-    }
-
-    private function resolveScratchcardsTokenForEmail(Connection $connection, string $submissionTable, string $email): string
-    {
-        $normalizedEmail = trim($email);
-        if ($normalizedEmail !== '') {
-            $existingToken = $connection->createQueryBuilder()
-                ->select('scratch_link_token')
-                ->from($submissionTable)
-                ->where('email = :email')
-                ->andWhere('scratch_link_token IS NOT NULL')
-                ->andWhere('scratch_link_token <> :emptyToken')
-                ->setParameter('email', $normalizedEmail)
-                ->setParameter('emptyToken', '')
-                ->orderBy('id', 'ASC')
-                ->setMaxResults(1)
-                ->executeQuery()
-                ->fetchOne();
-
-            $existingToken = trim((string) $existingToken);
-            if ($existingToken !== '') {
-                return $existingToken;
-            }
-        }
-
-        try {
-            return bin2hex(random_bytes(16));
-        } catch (\Throwable $exception) {
-            return sha1(uniqid((string) mt_rand(), true));
-        }
-    }
-
-    /**
-     * @param array<string, mixed> $submission
-     * @return array{success: bool, error?: string}
-     */
-    private function sendScratchcardsReminderEmail(array $submission, string $scratchLink, \DateTimeImmutable $sentAt): array
-    {
-        $recipient = trim((string) ($submission['email'] ?? ''));
-        if ($recipient === '') {
-            return ['success' => false, 'error' => 'Brak adresu e-mail.'];
-        }
-
-        $settings = $this->fetchModuleEntry('loteria_ustawienia') ?? [];
-        $templateId = $settings['reminder_email_template'] ?? null;
-        if (!is_string($templateId) && !is_int($templateId)) {
-            return ['success' => false, 'error' => 'Brak skonfigurowanego szablonu przypomnienia.'];
-        }
-
-        $definition = $this->resolveModuleDefinition('email_templates');
-        $table = $definition['database']['table'] ?? null;
-        if (!is_string($table) || $table === '') {
-            return ['success' => false, 'error' => 'Brak konfiguracji modułu szablonów e-mail.'];
-        }
-
-        $connection = $this->entityManager->getConnection();
-        $template = $connection->createQueryBuilder()
-            ->select('*')
-            ->from($table)
-            ->where('id = :id')
-            ->setParameter('id', (string) $templateId)
-            ->setMaxResults(1)
-            ->executeQuery()
-            ->fetchAssociative();
-
-        if (!$template) {
-            return ['success' => false, 'error' => 'Nie znaleziono szablonu przypomnienia.'];
-        }
-
-        $placeholders = ['{data}', '{data_czas}', '{email}', '{telefon}', '{link_zdrapki}'];
-        $replacement = [
-            $sentAt->format('d-m-Y'),
-            $sentAt->format('Y-m-d H:i:s'),
-            $recipient,
-            trim((string) ($submission['phone'] ?? '')),
-            $scratchLink,
-        ];
-
-        $subject = str_replace($placeholders, $replacement, (string) ($template['subject'] ?? ''));
-        $body = str_replace($placeholders, $replacement, (string) ($template['body'] ?? ''));
-
-        return $this->mailer->sendWithError($recipient, $subject, $body, true, $this->resolveTemplateBcc($template), false, $this->isPriorityEmailTemplate($template));
-    }
-
-    /**
-     * @param array{module: array<string, mixed>, database: array<string, mixed>} $definition
-     */
-    private function generateLotteryTickets(Request $request, string $moduleKey, string $recordId, array $definition): ?Response
-    {
-        $database = $definition['database'];
-        $table = $database['table'] ?? null;
-
-        if (!$table) {
-            return $this->buildModuleAlertRedirect($request, $moduleKey, 'error', 'Brak konfiguracji bazy danych.');
-        }
-
-        $connection = $this->entityManager->getConnection();
-        $rows = $connection->createQueryBuilder()
-            ->select('id', 'submission_code')
-            ->from($table)
-            ->where('suspicious = 0 OR suspicious IS NULL')
-            ->orderBy('id', 'asc')
-            ->executeQuery()
-            ->fetchAllAssociative();
-
-        if ($rows === []) {
-            return $this->buildModuleAlertRedirect($request, $moduleKey, 'error', 'Brak zgłoszeń do wygenerowania losów.');
-        }
-
-        $ticketRows = '';
-        $chunks = array_chunk($rows, 2);
-        foreach ($chunks as $chunk) {
-            $ticketRows .= '<tr>';
-            for ($i = 0; $i < 2; $i++) {
-                if (isset($chunk[$i])) {
-                    $id = htmlspecialchars((string) ($chunk[$i]['id'] ?? ''), ENT_QUOTES, 'UTF-8');
-                    $code = htmlspecialchars((string) ($chunk[$i]['submission_code'] ?? ''), ENT_QUOTES, 'UTF-8');
-                    $ticketRows .= '<td><div class="ticket-id">ID: ' . $id . '</div><div class="ticket-code">Kod: ' . $code . '</div></td>';
-                } else {
-                    $ticketRows .= '<td></td>';
-                }
-            }
-            $ticketRows .= '</tr>';
-        }
-
-        $html = sprintf(
-            '<html><head><meta charset="utf-8"><style>body{font-family:DejaVu Sans, sans-serif;font-size:14px;}table{width:100%%;border-collapse:collapse;table-layout:fixed;}td{border:1px dashed #000;padding:14px;height:80px;vertical-align:middle;} .ticket-id{font-weight:bold;margin-bottom:6px;} .ticket-code{font-size:16px;}</style></head><body><h1>Losy do loterii</h1><table>%s</table></body></html>',
-            $ticketRows
-        );
-
-        $options = new Options();
-        $options->setDefaultFont('DejaVu Sans');
-
-        $dompdf = new Dompdf($options);
-        $dompdf->loadHtml($html);
-        $dompdf->setPaper('A4', 'portrait');
-        $dompdf->render();
-
-        $filename = sprintf('losy-%s-%s.pdf', $moduleKey, (new \DateTimeImmutable())->format('Y-m-d'));
-
-        $this->recordModuleChange($request, $moduleKey, 'lottery_pdf', null);
-
-        return new Response(
-            $dompdf->output(),
-            Response::HTTP_OK,
-            [
-                'Content-Type' => 'application/pdf',
-                'Content-Disposition' => sprintf('attachment; filename="%s"', $filename),
-            ]
-        );
-    }
-
-
-    /**
      * @return array<int, string>
      */
-
-    /**
-     * @param array<int, array<string, mixed>> $fields
-     *
-     * @return array<string, string>
-     */
-    private function extractSelectFieldOptions(array $fields, string $fieldName): array
-    {
-        if ($fieldName === '') {
-            return [];
-        }
-
-        foreach ($fields as $field) {
-            if ((string) ($field['name'] ?? '') !== $fieldName) {
-                continue;
-            }
-
-            $options = $field['options'] ?? [];
-            if (!is_array($options)) {
-                return [];
-            }
-
-            $normalizedOptions = [];
-            foreach ($options as $key => $label) {
-                if (!is_scalar($key) || !is_scalar($label)) {
-                    continue;
-                }
-
-                $normalizedOptions[(string) $key] = (string) $label;
-            }
-
-            return $normalizedOptions;
-        }
-
-        return [];
-    }
 
     /**
      * Applies the common list search to stored columns and to labels of relation fields.
@@ -6931,52 +4801,6 @@ class ModuleController extends BaseController
         return in_array($action, $configuredActions, true);
     }
 
-    private function applyLotteryTicketsVerifiedSubmissionFilter(
-        Request $request,
-        string $moduleKey,
-        \Doctrine\DBAL\Query\QueryBuilder $queryBuilder
-    ): void {
-        if ($moduleKey !== 'loteria_losy' || trim((string) $request->query->get('exclude_invalid_submissions', '')) !== '1') {
-            return;
-        }
-
-        $validSubmissionsQueryBuilder = $this->entityManager->getConnection()->createQueryBuilder()
-            ->select('id')
-            ->from('loteria_zgloszenia_entries')
-            ->where('(zgloszenie_sprawdzone IS NULL OR zgloszenie_sprawdzone <> :excluded_submission_verification_status)');
-
-        $queryBuilder->andWhere(sprintf('zgloszenie IN (%s)', $validSubmissionsQueryBuilder->getSQL()));
-        $queryBuilder->setParameter('excluded_submission_verification_status', 'niepoprawne');
-    }
-
-    private function applyEligibleTicketsMinimumFilter(
-        Request $request,
-        string $moduleKey,
-        string $table,
-        \Doctrine\DBAL\Query\QueryBuilder $queryBuilder
-    ): void {
-        if ($moduleKey !== 'loteria_losy' || !$this->isSafeSqlIdentifier($table)) {
-            return;
-        }
-
-        $minimum = (int) trim((string) $request->query->get('eligible_tickets_min', ''));
-        if ($minimum <= 1) {
-            return;
-        }
-
-        $eligibleTicketsQueryBuilder = clone $queryBuilder;
-        $eligibleTicketsQueryBuilder
-            ->select('email')
-            ->resetQueryPart('orderBy')
-            ->andWhere('email IS NOT NULL')
-            ->andWhere("email <> ''")
-            ->groupBy('email')
-            ->having('COUNT(*) >= :eligible_tickets_min_filter');
-
-        $queryBuilder->andWhere(sprintf('email IN (%s)', $eligibleTicketsQueryBuilder->getSQL()));
-        $queryBuilder->setParameter('eligible_tickets_min_filter', $minimum);
-    }
-
     /**
      * Applies immutable module-level list constraints before user search and filters.
      *
@@ -6985,10 +4809,10 @@ class ModuleController extends BaseController
      * - ['field' => 'status', 'operator' => 'in', 'values' => ['active', 'pending']]
      * - ['field' => 'purchase_date', 'operator' => 'at_least_days_ago', 'days' => 14]
      * - [
-     *     'field' => 'stan',
+     *     'field' => 'status',
      *     'operator' => 'in_relation_flag',
-     *     'module' => 'ustawienia_statusow',
-     *     'flag' => 'do_weryfikacji_przez_administratora',
+     *     'module' => 'statusy',
+     *     'flag' => 'wymaga_zatwierdzenia',
      *   ]
      *
      * @param \Doctrine\DBAL\Query\QueryBuilder $queryBuilder
@@ -7519,108 +5343,6 @@ class ModuleController extends BaseController
         return $options;
     }
 
-    /**
-     * @param array<string, string> $winnerStoreOptions
-     * @param array<string, string> $centerOptions
-     *
-     * @return array<string, string>
-     */
-    private function appendCenterLabelsToWinnerStores(array $winnerStoreOptions, array $centerOptions): array
-    {
-        if ($winnerStoreOptions === []) {
-            return [];
-        }
-
-        $storeCenterMap = $this->fetchStoreCenterMap();
-        if ($storeCenterMap === []) {
-            return $winnerStoreOptions;
-        }
-
-        $optionsWithCenter = [];
-        foreach ($winnerStoreOptions as $storeId => $storeName) {
-            $normalizedStoreId = (string) $storeId;
-            $normalizedStoreName = trim((string) $storeName);
-            $centerId = $storeCenterMap[$normalizedStoreId] ?? '';
-            $centerLabel = $centerOptions[$centerId] ?? '';
-            if ($centerLabel === '') {
-                $optionsWithCenter[$normalizedStoreId] = $normalizedStoreName;
-                continue;
-            }
-
-            $optionsWithCenter[$normalizedStoreId] = sprintf('%s (%s)', $normalizedStoreName, $centerLabel);
-        }
-
-        return $optionsWithCenter;
-    }
-
-    /**
-     * @param array<string, string> $options
-     * @return array<int, string>
-     */
-    private function findMatchingOptionIds(array $options, string $query): array
-    {
-        $normalizedQuery = trim($query);
-        if ($normalizedQuery === '' || $options === []) {
-            return [];
-        }
-
-        $matchingIds = [];
-        foreach ($options as $optionId => $optionLabel) {
-            if (stripos((string) $optionLabel, $normalizedQuery) === false) {
-                continue;
-            }
-
-            $matchingIds[] = (string) $optionId;
-        }
-
-        return $matchingIds;
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function fetchStoreCenterMap(): array
-    {
-        $definition = $this->resolveModuleDefinition('lista_sklepow');
-        $database = is_array($definition) ? ($definition['database'] ?? null) : null;
-        $table = is_array($database) ? ($database['table'] ?? null) : null;
-        if (!is_string($table) || $table === '') {
-            return [];
-        }
-
-        $rows = $this->entityManager->getConnection()->createQueryBuilder()
-            ->select('id', 'centrum_handlowe')
-            ->from($table)
-            ->executeQuery()
-            ->fetchAllAssociative();
-
-        $storeCenterMap = [];
-        foreach ($rows as $row) {
-            $storeId = trim((string) ($row['id'] ?? ''));
-            if ($storeId === '') {
-                continue;
-            }
-
-            $storeCenterMap[$storeId] = trim((string) ($row['centrum_handlowe'] ?? ''));
-        }
-
-        return $storeCenterMap;
-    }
-
-    private function isValidDateFilterValue(string $value): bool
-    {
-        if ($value === '') {
-            return false;
-        }
-
-        $date = \DateTimeImmutable::createFromFormat('Y-m-d', $value);
-        if (!$date) {
-            return false;
-        }
-
-        return $date->format('Y-m-d') === $value;
-    }
-
     private function normalizeRangeFilterValue(string $value, string $filterType): string
     {
         $normalizedValue = trim($value);
@@ -7709,7 +5431,6 @@ class ModuleController extends BaseController
         return $rows;
     }
 
-
     private function normalizeCsvColumnName(string $columnName): string
     {
         $normalized = trim($columnName);
@@ -7745,11 +5466,11 @@ class ModuleController extends BaseController
     {
         $type = strtolower((string) ($field['type'] ?? 'text'));
         if ($rawValue === '') {
-            return in_array($type, ['checkbox', 'boolean', 'boolean_select'], true) ? false : null;
+            return in_array($type, ['checkbox', 'boolean', 'boolean_select'], true) ? 0 : null;
         }
 
         return match ($type) {
-            'checkbox', 'boolean', 'boolean_select' => in_array(mb_strtolower($rawValue), ['1', 'true', 'tak', 'yes'], true),
+            'checkbox', 'boolean', 'boolean_select' => (int) in_array(mb_strtolower($rawValue), ['1', 'true', 'tak', 'yes'], true),
             'relation', 'date', 'datetime', 'select', 'text', 'textarea' => $rawValue,
             default => $rawValue,
         };
@@ -7764,15 +5485,6 @@ class ModuleController extends BaseController
 
         return new RedirectResponse('/cms/modules/' . $moduleKey);
     }
-
-    /**
-     * @return array<int, string>
-     */
-    private function fetchLotteryIdsByType(string $lotteryType): array
-    {
-        return [];
-    }
-
 
     /**
      * @param array<int, array<string, mixed>> $rows
@@ -7865,201 +5577,6 @@ class ModuleController extends BaseController
         return new RedirectResponse('/cms/modules/' . $moduleKey . ($queryString !== '' ? '?' . $queryString : ''));
     }
 
-    /**
-     * @param array<string, mixed> $data
-     * @return array<string, mixed>|null
-     */
-    private function storeWinnerImportLog(Request $request, array $data): ?array
-    {
-        $directory = $this->getWinnerImportLogDirectory();
-        if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
-            return null;
-        }
-
-        try {
-            $logId = (new \DateTimeImmutable())->format('Ymd-His') . '-' . bin2hex(random_bytes(4));
-        } catch (\Throwable) {
-            $logId = (new \DateTimeImmutable())->format('Ymd-His') . '-' . substr(sha1(uniqid('', true)), 0, 8);
-        }
-
-        $details = is_array($data['details'] ?? null) ? array_values($data['details']) : [];
-        $errors = is_array($data['errors'] ?? null) ? array_values($data['errors']) : [];
-        $detailErrorCount = count(array_filter(
-            $details,
-            static fn(mixed $entry): bool => is_array($entry) && ($entry['level'] ?? 'error') === 'error'
-        ));
-        $user = $this->authService->user();
-        $log = array_merge($data, [
-            'id' => $logId,
-            'created_at' => (new \DateTimeImmutable())->format(DATE_ATOM),
-            'user_email' => $user?->getEmail() ?? '',
-            'ip_address' => $request->getClientIp() ?? '',
-            'error_count' => max(count($errors), $detailErrorCount),
-            'details' => $details,
-            'errors' => $errors,
-        ]);
-
-        $encoded = json_encode(
-            $log,
-            JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
-        );
-        if (!is_string($encoded)) {
-            return null;
-        }
-
-        $path = $directory . DIRECTORY_SEPARATOR . $logId . '.json';
-        if (file_put_contents($path, $encoded, LOCK_EX) === false) {
-            return null;
-        }
-
-        return $this->hydrateWinnerImportLog($log);
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function listWinnerImportLogs(int $limit = 30): array
-    {
-        $paths = glob($this->getWinnerImportLogDirectory() . DIRECTORY_SEPARATOR . '*.json') ?: [];
-        usort($paths, static function (string $left, string $right): int {
-            return (filemtime($right) ?: 0) <=> (filemtime($left) ?: 0);
-        });
-
-        $logs = [];
-        foreach (array_slice($paths, 0, $limit) as $path) {
-            $logId = pathinfo($path, PATHINFO_FILENAME);
-            $log = $this->loadWinnerImportLog($logId);
-            if ($log !== null) {
-                $logs[] = $log;
-            }
-        }
-
-        return $logs;
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function loadWinnerImportLog(string $logId): ?array
-    {
-        if (preg_match('/^[A-Za-z0-9-]+$/D', $logId) !== 1) {
-            return null;
-        }
-
-        $path = $this->getWinnerImportLogDirectory() . DIRECTORY_SEPARATOR . $logId . '.json';
-        if (!is_file($path) || !is_readable($path)) {
-            return null;
-        }
-
-        $contents = file_get_contents($path);
-        if (!is_string($contents)) {
-            return null;
-        }
-        $log = json_decode($contents, true);
-        if (!is_array($log) || ($log['id'] ?? null) !== $logId) {
-            return null;
-        }
-
-        return $this->hydrateWinnerImportLog($log);
-    }
-
-    /**
-     * @param array<string, mixed> $log
-     * @return array<string, mixed>
-     */
-    private function hydrateWinnerImportLog(array $log): array
-    {
-        $createdAt = trim((string) ($log['created_at'] ?? ''));
-        try {
-            $log['display_created_at'] = $createdAt !== ''
-                ? (new \DateTimeImmutable($createdAt))->format('Y-m-d H:i:s')
-                : '—';
-        } catch (\Throwable) {
-            $log['display_created_at'] = $createdAt !== '' ? $createdAt : '—';
-        }
-
-        foreach (['errors', 'details', 'technical_errors'] as $listKey) {
-            if (!is_array($log[$listKey] ?? null)) {
-                $log[$listKey] = [];
-            }
-        }
-
-        return $log;
-    }
-
-    /**
-     * @param array<string, mixed> $log
-     */
-    private function formatWinnerImportLog(array $log): string
-    {
-        $statusLabels = [
-            'success' => 'SUKCES',
-            'warning' => 'CZĘŚCIOWO',
-            'error' => 'BŁĄD',
-        ];
-        $lines = [
-            'LOG IMPORTU ZWYCIĘZCÓW',
-            str_repeat('=', 80),
-            'Identyfikator raportu: ' . (string) ($log['id'] ?? ''),
-            'Data: ' . (string) ($log['display_created_at'] ?? $log['created_at'] ?? ''),
-            'Status: ' . ($statusLabels[(string) ($log['status'] ?? '')] ?? (string) ($log['status'] ?? '')),
-            'Źródło: ' . ((string) ($log['source_file'] ?? '') ?: '—'),
-            'Użytkownik: ' . ((string) ($log['user_email'] ?? '') ?: '—'),
-            'Rodzaj wygranej: ' . ((string) ($log['winner_kind_label'] ?? '') ?: '—'),
-            'Nagroda: ' . ((string) ($log['prize_name'] ?? '') ?: (string) ($log['prize_type'] ?? '—')),
-            'Losowanie: ' . ((string) ($log['drawing_label'] ?? '') ?: ((string) ($log['drawing_id'] ?? '') ?: '—')),
-            sprintf(
-                'Podsumowanie: dodano %d, pominięto %d, błędy %d',
-                (int) ($log['imported_count'] ?? 0),
-                (int) ($log['skipped_count'] ?? 0),
-                (int) ($log['error_count'] ?? 0)
-            ),
-        ];
-
-        $errors = is_array($log['errors'] ?? null) ? $log['errors'] : [];
-        if ($errors !== []) {
-            $lines[] = '';
-            $lines[] = 'KOMUNIKATY BŁĘDÓW';
-            $lines[] = str_repeat('-', 80);
-            foreach ($errors as $error) {
-                $lines[] = '- ' . trim((string) $error);
-            }
-        }
-
-        $details = is_array($log['details'] ?? null) ? $log['details'] : [];
-        if ($details !== []) {
-            $lines[] = '';
-            $lines[] = 'SZCZEGÓŁY POZYCJI';
-            $lines[] = str_repeat('-', 80);
-            foreach ($details as $entry) {
-                if (!is_array($entry)) {
-                    continue;
-                }
-                $level = ($entry['level'] ?? 'error') === 'warning' ? 'POMINIĘTO' : 'BŁĄD';
-                $ticketId = trim((string) ($entry['ticket_id'] ?? ''));
-                $message = trim((string) ($entry['message'] ?? ''));
-                $lines[] = sprintf('[%s]%s %s', $level, $ticketId !== '' ? ' ID ' . $ticketId . ':' : '', $message);
-            }
-        }
-
-        $technicalErrors = is_array($log['technical_errors'] ?? null) ? $log['technical_errors'] : [];
-        if ($technicalErrors !== []) {
-            $lines[] = '';
-            $lines[] = 'SZCZEGÓŁY TECHNICZNE';
-            $lines[] = str_repeat('-', 80);
-            foreach ($technicalErrors as $technicalError) {
-                $lines[] = trim((string) $technicalError);
-            }
-        }
-
-        return implode("\r\n", $lines) . "\r\n";
-    }
-
-    private function getWinnerImportLogDirectory(): string
-    {
-        return dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'var' . DIRECTORY_SEPARATOR . 'winner-import-logs';
-    }
-
     protected function recordModuleChange(Request $request, string $moduleKey, string $action, ?int $recordId, ?array $changeSet = null): void
     {
         $user = $this->authService->user();
@@ -8142,6 +5659,5 @@ class ModuleController extends BaseController
     {
         return filter_var($template['priority_email'] ?? false, FILTER_VALIDATE_BOOLEAN);
     }
-
 
 }

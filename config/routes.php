@@ -17,27 +17,6 @@ $routes->add('meta_json', new Route('/meta.json', [
     '_controller' => 'App\\Controller\\FrontendController::metaJson',
 ], [], [], '', [], ['GET']));
 
-$routes->add('age_gate_confirm', new Route('/age-gate/confirm', [
-    '_controller' => 'App\\Controller\\FrontendController::confirmAge',
-], [], [], '', [], ['POST']));
-
-$routes->add('ean_code_jpg', new Route('/kod-ean/{code}.jpg', [
-    '_controller' => 'App\\Controller\\EanCodeController::jpg',
-], [
-    'code' => '[0-9][0-9\\- ]{10,30}[0-9]',
-], [], '', [], ['GET']));
-
-$routes->add('code_128_code_jpg', new Route('/kod-code-128/{code}.jpg', [
-    '_controller' => 'App\\Controller\\Code128CodeController::jpg',
-], [
-    'code' => '[^/]+',
-], [], '', [], ['GET']));
-
-
-$routes->add('loteria_m1', new Route('/loteria', [
-    '_controller' => 'App\\Controller\\FrontendController::loteriaM1',
-]));
-
 $routes->add('download_pretty_file', new Route('/pliki/{slug}', [
     '_controller' => 'App\\Controller\\FrontendController::downloadPrettyFile',
 ], [
@@ -50,42 +29,6 @@ $routes->add('media_module_upload', new Route('/media/modules/{moduleKey}/{filen
     'moduleKey' => '[A-Za-z0-9_-]+',
     'filename' => '.+',
 ], [], '', [], ['GET']));
-
-$routes->add('media_winner_receipt', new Route('/media/winner-receipts/{filename}', [
-    '_controller' => 'App\\Controller\\FrontendController::serveWinnerReceipt',
-], [
-    'filename' => '.+',
-], [], '', [], ['GET']));
-
-
-
-
-$routes->add('lottery_losowane_zdrapki_submit', new Route('/loteria/losowane-zdrapki', [
-    '_controller' => 'App\\Controller\\FrontendController::submitLosowaneZdrapki',
-], [], [], '', [], ['POST']));
-
-
-$routes->add('lottery_losowane_zdrapki_check', new Route('/loteria/losowane-zdrapki/sprawdz-wynik', [
-    '_controller' => 'App\\Controller\\FrontendController::checkLosowaneZdrapkiTicket',
-], [], [], '', [], ['POST']));
-
-$routes->add('lottery_winners_list', new Route('/loteria/wyniki', [
-    '_controller' => 'App\\Controller\\FrontendController::winnersList',
-], [], [], '', [], ['GET']));
-
-$routes->add('graphic_code_image', new Route('/kod-graficzny/{token}', [
-    '_controller' => 'App\\Controller\\GraphicCodeController::image',
-], [
-    'token' => '[a-fA-F0-9]{64}',
-], [], '', [], ['GET']));
-
-$routes->add('lottery_losowane_zdrapki_reveal_link', new Route('/loteria/zdrapki/{token}', [
-    '_controller' => 'App\\Controller\\FrontendController::revealRemainingScratchcards',
-], [], [], '', [], ['GET']));
-
-$routes->add('lottery_winner_form', new Route('/loteria/zwyciezca/{token}', [
-    '_controller' => 'App\\Controller\\FrontendController::winnerForm',
-], [], [], '', [], ['GET', 'POST']));
 
 $routes->add('cron_run_configured', new Route('/cron/run', [
     '_controller' => 'App\\Controller\\FrontendController::runConfiguredCronTasks',
@@ -226,26 +169,6 @@ $routes->add('cms_profile', new Route('/cms/profile', [
 ]));
 
 
-$routes->add('cms_receipt_verification', new Route('/cms/sprawdz-paragony', [
-    '_controller' => 'App\\Controller\\ReceiptVerificationController::index',
-]));
-
-$routes->add('cms_receipt_verification_update', new Route('/cms/sprawdz-paragony/zapisz', [
-    '_controller' => 'App\\Controller\\ReceiptVerificationController::update',
-], [], [], '', [], ['POST']));
-
-$routes->add('cms_receipts_in_verification', new Route('/cms/w-weryfikacji', [
-    '_controller' => 'App\\Controller\\ReceiptVerificationController::inVerification',
-]));
-
-$routes->add('cms_receipts_in_verification_update', new Route('/cms/w-weryfikacji/zapisz', [
-    '_controller' => 'App\\Controller\\ReceiptVerificationController::updateInVerification',
-], [], [], '', [], ['POST']));
-
-$routes->add('cms_participant_info', new Route('/cms/informacja-o-uczestniku', [
-    '_controller' => 'App\\Controller\\ParticipantInfoController::index',
-]));
-
 $routes->add('cms_modules_file_browser', new Route('/cms/modules/file-browser', [
     '_controller' => 'App\\Controller\\ModuleController::fileBrowser',
 ], [], [], '', [], ['GET']));
@@ -262,20 +185,6 @@ $routes->add('cms_modules_create', new Route('/cms/modules/{moduleKey}/create', 
     '_controller' => 'App\\Controller\\ModuleController::create',
 ]));
 
-$routes->add('cms_modules_import_winning_codes', new Route('/cms/modules/{moduleKey}/import-winning-codes', [
-    '_controller' => 'App\\Controller\\ModuleController::importWinningCodes',
-], [], [], '', [], ['GET', 'POST']));
-
-$routes->add('cms_modules_import_winners_csv', new Route('/cms/modules/{moduleKey}/import-winners-csv', [
-    '_controller' => 'App\\Controller\\ModuleController::importWinnersCsv',
-], [], [], '', [], ['GET', 'POST']));
-
-$routes->add('cms_modules_import_winners_csv_log', new Route('/cms/modules/{moduleKey}/import-winners-csv/log/{logId}', [
-    '_controller' => 'App\\Controller\\ModuleController::winnerImportLog',
-], [
-    'logId' => '[A-Za-z0-9-]+',
-], [], '', [], ['GET']));
-
 $routes->add('cms_modules_import_csv', new Route('/cms/modules/{moduleKey}/import-csv', [
     '_controller' => 'App\\Controller\\ModuleController::importCsv',
 ], [], [], '', [], ['POST']));
@@ -288,10 +197,6 @@ $routes->add('cms_modules_view', new Route('/cms/modules/{moduleKey}/{id}/view',
     '_controller' => 'App\\Controller\\ModuleController::view',
 ]));
 
-
-$routes->add('cms_modules_winners_pdf', new Route('/cms/modules/{moduleKey}/{id}/winners-pdf', [
-    '_controller' => 'App\Controller\ModuleController::winnersPdf',
-], [], [], '', [], ['GET']));
 
 $routes->add('cms_modules_chunk_upload', new Route('/cms/modules/{moduleKey}/chunk-upload/{fieldName}', [
     '_controller' => 'App\\Controller\\ModuleController::chunkUpload',

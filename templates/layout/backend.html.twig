@@ -25,7 +25,6 @@
             {% set canViewInstallDb = permissionService.can(user, 'install_db', 'view') %}
             {% set canViewSystemSettings = permissionService.can(user, 'system_settings', 'view') %}
             {% set canViewSiteSettings = permissionService.can(user, 'settings', 'view') %}
-            {% set canViewLotterySettings = permissionService.can(user, 'loteria_ustawienia', 'view') %}
             {% set currentPath = app.request.pathinfo|default('') %}
             <div class="menu-group" data-menu-group="glowne">
                 <button class="menu-group-toggle" type="button" aria-expanded="true">
@@ -34,7 +33,6 @@
                 </button>
                 <div class="menu-group-items">
                     <a class="menu-link" href="/cms"><i class="bi bi-speedometer2"></i><span>Dashboard</span></a>
-                    <a class="menu-link" href="/"><i class="bi bi-globe2"></i><span>Frontend</span></a>
                 </div>
             </div>
             {% if menuModuleGroups is defined and menuModuleGroups %}
