@@ -78,7 +78,7 @@ class PermissionService
         return false;
     }
 
-    private function isAdministrator(User $user): bool
+    public function isAdministrator(User $user): bool
     {
         foreach ($user->getGroups() as $group) {
             if ($group->getName() === self::ADMINISTRATOR_GROUP_NAME) {

@@ -1,0 +1,88 @@
+{% macro status(value, label) %}
+    <span class="lt-status" data-status="{{ value|default('planowany') }}">{{ label|default(value)|default('Planowany') }}</span>
+{% endmacro %}
+
+{% macro status_label(value) %}
+    {%- set labels = {planowany: 'Planowany', zatwierdzony: 'Zatwierdzony', w_realizacji: 'W realizacji', zakonczony: 'Zakończony', anulowany: 'Anulowany'} -%}
+    {{- labels[value|default('planowany')]|default(value) -}}
+{% endmacro %}
+
+{% macro plate(nr, rodzaj) %}
+    {% if nr %}<span class="lt-plate{{ rodzaj == 'wojskowy' ? ' is-military' : '' }}">{{ nr }}</span>{% else %}<span class="text-muted small">brak pojazdu</span>{% endif %}
+{% endmacro %}
+
+{% macro driver_name(trip) %}
+    {%- if trip.kierowca -%}
+        {{- [trip.kierowca_stopien, trip.kierowca_imie, trip.kierowca_nazwisko]|filter(v => v)|join(' ') -}}
+    {%- else -%}
+        <span class="text-muted">brak kierowcy</span>
+    {%- endif -%}
+{% endmacro %}
+
+{% macro person(row) %}{{ [row.stopien, row.imie, row.nazwisko]|filter(v => v)|join(' ') }}{% endmacro %}
+
+{% macro range(from, to) %}
+    {%- if from|date('Y-m-d') == to|date('Y-m-d') -%}
+        {{ from|date('d.m.Y') }}, {{ from|date('H:i') }}–{{ to|date('H:i') }}
+    {%- else -%}
+        {{ from|date('d.m H:i') }} – {{ to|date('d.m.Y H:i') }}
+    {%- endif -%}
+{% endmacro %}
+
+{% macro weekday(date, short) %}
+    {%- set names = short|default(false) ? ['nd', 'pn', 'wt', 'śr', 'cz', 'pt', 'sb'] : ['niedziela', 'poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek', 'sobota'] -%}
+    {{- names[date|date('w')] -}}
+{% endmacro %}
+
+{% macro month_name(date, genitive) %}
+    {%- set names = genitive|default(false)
+        ? ['stycznia', 'lutego', 'marca', 'kwietnia', 'maja', 'czerwca', 'lipca', 'sierpnia', 'września', 'października', 'listopada', 'grudnia']
+        : ['styczeń', 'luty', 'marzec', 'kwiecień', 'maj', 'czerwiec', 'lipiec', 'sierpień', 'wrzesień', 'październik', 'listopad', 'grudzień'] -%}
+    {{- names[(date|date('n')) - 1] -}}
+{% endmacro %}
+
+{% macro days_badge(days, level) %}
+    <div class="lt-days is-{{ level }}">
+        {% if days < 0 %}{{ -days }}<small>dni po</small>{% elseif days == 0 %}dziś<small>termin</small>{% else %}{{ days }}<small>{{ days == 1 ? 'dzień' : 'dni' }}</small>{% endif %}
+    </div>
+{% endmacro %}
+
+{% macro field(field, value, error) %}
+    {% set name = field.name %}
+    {% set id = 'f-' ~ name %}
+    {% set type = field.type %}
+    {% set wide = type == 'textarea' or name in ['cel', 'trasa', 'uwagi'] %}
+    <div class="{{ wide ? 'col-12' : 'col-md-6' }}">
+        <label class="form-label fw-semibold small" for="{{ id }}">{{ field.label }}{% if field.required|default(false) %} <span class="text-danger">*</span>{% endif %}</label>
+        {% if type == 'select' or type == 'relation' %}
+            <select class="form-select{{ error ? ' is-invalid' : '' }}" id="{{ id }}" name="{{ name }}"{% if field.required|default(false) %} required{% endif %}>
+                <option value="">{{ type == 'relation' ? '— nie przydzielono —' : '— wybierz —' }}</option>
+                {% for key, label in field.options|default({}) %}
+                    <option value="{{ key }}"{% if value is not null and value ~ '' == key ~ '' %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        {% elseif type == 'textarea' %}
+            <textarea class="form-control{{ error ? ' is-invalid' : '' }}" id="{{ id }}" name="{{ name }}" rows="3">{{ value }}</textarea>
+        {% elseif type == 'date' %}
+            <input type="date" class="form-control{{ error ? ' is-invalid' : '' }}" id="{{ id }}" name="{{ name }}" value="{{ value ? value|date('Y-m-d') : '' }}"{% if field.required|default(false) %} required{% endif %}>
+        {% elseif type == 'datetime' %}
+            <input type="datetime-local" class="form-control{{ error ? ' is-invalid' : '' }}" id="{{ id }}" name="{{ name }}" value="{{ value ? value|date('Y-m-d\\TH:i') : '' }}" step="900"{% if field.required|default(false) %} required{% endif %}>
+        {% elseif type == 'number' or type == 'decimal' %}
+            <input type="text" inputmode="decimal" class="form-control{{ error ? ' is-invalid' : '' }}" id="{{ id }}" name="{{ name }}" value="{{ value }}"{% if field.required|default(false) %} required{% endif %}>
+        {% else %}
+            <input type="text" class="form-control{{ error ? ' is-invalid' : '' }}" id="{{ id }}" name="{{ name }}" value="{{ value }}" maxlength="255"{% if field.required|default(false) %} required{% endif %}>
+        {% endif %}
+        {% if error %}<div class="invalid-feedback">{{ error }}</div>{% elseif field.help|default('') %}<div class="form-text">{{ field.help }}</div>{% endif %}
+    </div>
+{% endmacro %}
+
+{% macro form_sections(sections, values, errors) %}
+    {% for section in sections %}
+        {% if section.label %}<div class="lt-section-title">{{ section.label }}</div>{% endif %}
+        <div class="row g-3 mb-2">
+            {% for field in section.fields %}
+                {{ _self.field(field, values[field.name]|default(null), errors[field.name]|default(null)) }}
+            {% endfor %}
+        </div>
+    {% endfor %}
+{% endmacro %}

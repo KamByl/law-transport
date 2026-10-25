@@ -1,0 +1,103 @@
+{% extends 'app/layout.html.twig' %}
+
+{% block topbar_actions %}
+    {% if canCreate %}
+        <button type="button" class="btn btn-primary btn-sm" data-pl-new><i class="bi bi-plus-lg me-1"></i><span class="d-none d-sm-inline">Nowy wyjazd</span></button>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+<div id="planner" data-can-edit="{{ canEdit ? '1' : '0' }}" data-can-create="{{ canCreate ? '1' : '0' }}">
+    <div class="pl-toolbar">
+        <div class="btn-group" role="group" aria-label="Nawigacja">
+            <button type="button" class="btn btn-outline-secondary" data-pl-nav="-1" title="Poprzedni okres (←)"><i class="bi bi-chevron-left"></i></button>
+            <button type="button" class="btn btn-outline-secondary" data-pl-today title="Dziś (T)">Dziś</button>
+            <button type="button" class="btn btn-outline-secondary" data-pl-nav="1" title="Następny okres (→)"><i class="bi bi-chevron-right"></i></button>
+        </div>
+        <input type="date" class="form-control w-auto" data-pl-date aria-label="Przejdź do daty">
+        <div class="pl-range" data-pl-range></div>
+        <div class="ms-auto d-flex flex-wrap gap-2 align-items-center">
+            <div class="btn-group" role="group" aria-label="Zakres">
+                <input type="radio" class="btn-check" name="plDays" id="plDays1" value="1"><label class="btn btn-outline-secondary btn-sm" for="plDays1">Dzień</label>
+                <input type="radio" class="btn-check" name="plDays" id="plDays3" value="3"><label class="btn btn-outline-secondary btn-sm" for="plDays3">3 dni</label>
+                <input type="radio" class="btn-check" name="plDays" id="plDays7" value="7"><label class="btn btn-outline-secondary btn-sm" for="plDays7">Tydzień</label>
+                <input type="radio" class="btn-check" name="plDays" id="plDays14" value="14"><label class="btn btn-outline-secondary btn-sm" for="plDays14">2 tyg.</label>
+            </div>
+            <div class="btn-group" role="group" aria-label="Widok">
+                <input type="radio" class="btn-check" name="plView" id="plViewV" value="pojazdy"><label class="btn btn-outline-primary btn-sm" for="plViewV"><i class="bi bi-truck me-1"></i>Pojazdy</label>
+                <input type="radio" class="btn-check" name="plView" id="plViewD" value="kierowcy"><label class="btn btn-outline-primary btn-sm" for="plViewD"><i class="bi bi-people me-1"></i>Kierowcy</label>
+            </div>
+            <select class="form-select form-select-sm w-auto" data-pl-kind aria-label="Rodzaj pojazdów">
+                <option value="">Wszystkie pojazdy</option>
+                <option value="wojskowy">Wojskowe</option>
+                <option value="cywilny">Cywilne</option>
+            </select>
+            <input type="search" class="form-control form-control-sm" style="width: 180px" placeholder="Szukaj w planie…" data-pl-search>
+            <div class="form-check form-switch mb-0 small">
+                <input class="form-check-input" type="checkbox" id="plCancelled" data-pl-cancelled>
+                <label class="form-check-label" for="plCancelled">anulowane</label>
+            </div>
+        </div>
+    </div>
+
+    <div class="pl-wrap{{ canEdit ? '' : ' is-readonly' }}">
+        <aside class="pl-side">
+            <div class="lt-card">
+                <div class="lt-card-header">
+                    <h2><i class="bi bi-inbox me-2 text-warning"></i>Do przydzielenia</h2>
+                    <span class="badge rounded-pill text-bg-warning" data-pl-pool-count>0</span>
+                </div>
+                <div class="lt-card-body">
+                    <div class="pl-pool" data-pl-pool></div>
+                    <div class="pl-hint mt-2">Przeciągnij wyjazd na wiersz planu. Upuść wyjazd tutaj, aby zdjąć przydział.</div>
+                </div>
+            </div>
+            <div class="lt-card" style="flex: 1 1 auto">
+                <div class="lt-card-header">
+                    <h2 data-pl-chips-title>Kierowcy</h2>
+                </div>
+                <div class="lt-card-body">
+                    <input type="search" class="form-control form-control-sm mb-2" placeholder="Filtruj…" data-pl-chip-filter>
+                    <div class="d-flex flex-column gap-2" data-pl-chips></div>
+                    <div class="pl-hint mt-2" data-pl-chips-hint></div>
+                </div>
+            </div>
+        </aside>
+
+        <section>
+            <div class="lt-card pl-board">
+                <div class="pl-scroll" data-pl-scroll>
+                    <div class="pl-grid" data-pl-grid></div>
+                </div>
+            </div>
+            <div class="d-flex flex-wrap justify-content-between gap-2 mt-2">
+                <div class="pl-legend">
+                    <span><i style="background: repeating-linear-gradient(135deg,#fff,#fff 3px,#dfe2e6 3px,#dfe2e6 6px); border:1px dashed #7b8494"></i>Planowany</span>
+                    <span><i style="background: var(--st-zatwierdzony)"></i>Zatwierdzony</span>
+                    <span><i style="background: var(--st-w_realizacji)"></i>W realizacji</span>
+                    <span><i style="background: var(--st-zakonczony)"></i>Zakończony</span>
+                    <span><i style="background: #e0a21b; border-radius: 50%; width: 10px"></i>Ostrzeżenie</span>
+                    <span><i style="outline: 2px solid var(--st-anulowany); background:#fff"></i>Konflikt</span>
+                </div>
+                {% if canEdit %}
+                    <div class="pl-hint">Przeciągnij wyjazd, aby zmienić termin lub pojazd. Złap prawą krawędź, aby zmienić długość. Kliknij dwukrotnie wolne miejsce, aby dodać wyjazd. <kbd>←</kbd> <kbd>→</kbd> zmieniają okres.</div>
+                {% else %}
+                    <div class="pl-hint">Tryb podglądu. Kliknij wyjazd, aby zobaczyć szczegóły.</div>
+                {% endif %}
+            </div>
+        </section>
+    </div>
+</div>
+
+<div class="offcanvas offcanvas-end lt-panel" tabindex="-1" id="plPanel" aria-labelledby="plPanelTitle">
+    <div class="offcanvas-header">
+        <h5 class="offcanvas-title fw-bold" id="plPanelTitle">Wyjazd</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Zamknij"></button>
+    </div>
+    <div class="offcanvas-body" data-pl-panel-body></div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+    <script src="/assets/js/planner.js"></script>
+{% endblock %}

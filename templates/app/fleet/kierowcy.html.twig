@@ -1,0 +1,48 @@
+{% extends 'app/layout.html.twig' %}
+{% import 'app/_macros.html.twig' as ui %}
+{% block topbar_actions %}
+    {% if ctx.can.kierowcy.create %}<a href="/kierowcy/nowy" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg me-1"></i>Dodaj kierowcę</a>{% endif %}
+{% endblock %}
+{% block content %}
+<form class="d-flex gap-2 mb-3" method="get">
+    <input type="search" name="q" value="{{ q }}" class="form-control" style="max-width: 360px" placeholder="Szukaj: nazwisko, pododdział…">
+    <button class="btn btn-outline-secondary"><i class="bi bi-search"></i></button>
+</form>
+<div class="lt-card">
+    {% if items %}
+    <div class="table-responsive">
+        <table class="table lt-table">
+            <thead><tr><th>Kierowca</th><th>Pododdział</th><th>Kategorie</th><th>Dostępność</th><th>Terminy</th><th>Konto</th></tr></thead>
+            <tbody>
+            {% for item in items %}
+                {% set d = item.row %}
+                <tr class="lt-row-link{{ d.status == 'nieaktywny' ? ' opacity-50' : '' }}" data-href="/kierowcy/{{ d.id }}">
+                    <td>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="lt-avatar">{{ (d.imie|first ~ d.nazwisko|first)|upper }}</span>
+                            <div><a href="/kierowcy/{{ d.id }}" class="fw-semibold text-body text-decoration-none">{{ ui.person(d) }}</a>{% if d.telefon %}<div class="small text-muted">{{ d.telefon }}</div>{% endif %}</div>
+                        </div>
+                    </td>
+                    <td class="small">{{ d.pododdzial }}</td>
+                    <td><span class="fw-semibold">{{ d.kategorie ?: '—' }}</span>{% if d.nr_pozwolenia_wojskowego %} <span class="badge text-bg-light border" title="Pozwolenie wojskowe">PW</span>{% endif %}</td>
+                    <td class="small">
+                        {% if item.busy %}<span class="lt-dot is-busy me-1"></span>W trasie
+                        {% elseif d.status|default('dostepny') == 'dostepny' %}<span class="lt-dot is-ok me-1"></span>Dostępny
+                        {% else %}<span class="lt-dot is-off me-1"></span>{{ options.status[d.status]|default(d.status) }}{% endif %}
+                    </td>
+                    <td>
+                        {% if item.worst == 'expired' %}<span class="lt-term is-expired"><i class="bi bi-x-circle"></i>przeterminowane</span>
+                        {% elseif item.worst == 'soon' %}<span class="lt-term is-soon"><i class="bi bi-exclamation-triangle"></i>wkrótce</span>
+                        {% else %}<span class="lt-term is-ok"><i class="bi bi-check2"></i>OK</span>{% endif %}
+                    </td>
+                    <td class="small">{% if d.email %}<i class="bi bi-person-check text-success" title="{{ d.email }}"></i>{% else %}<span class="text-muted" title="Brak powiązanego konta">—</span>{% endif %}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <div class="lt-empty"><i class="bi bi-people"></i>Brak kierowców{{ q ? ' dla „' ~ q ~ '”' : '' }}.</div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,51 @@
+{% extends 'app/layout.html.twig' %}
+{% import 'app/_macros.html.twig' as ui %}
+{% block topbar_actions %}
+    {% if ctx.can.pojazdy.create %}<a href="/pojazdy/nowy" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg me-1"></i>Dodaj pojazd</a>{% endif %}
+{% endblock %}
+{% block content %}
+<form class="d-flex gap-2 mb-3" method="get">
+    <input type="search" name="q" value="{{ q }}" class="form-control" style="max-width: 360px" placeholder="Szukaj: numer, marka, model…">
+    <button class="btn btn-outline-secondary"><i class="bi bi-search"></i></button>
+</form>
+{% set groups = {wojskowy: 'Pojazdy wojskowe', cywilny: 'Pojazdy cywilne'} %}
+{% for kind, label in groups %}
+    {% set list = items|filter(i => i.row.rodzaj == kind) %}
+    {% if list %}
+        <h2 class="lt-section-title">{{ label }} <span class="text-muted">({{ list|length }})</span></h2>
+        <div class="row g-3 mb-3">
+            {% for item in list %}
+                {% set v = item.row %}
+                {% set off = v.status in ['w_obsludze', 'wycofany'] %}
+                <div class="col-sm-6 col-xl-4 col-xxl-3">
+                    <a href="/pojazdy/{{ v.id }}" class="lt-card lt-vehicle-card{{ v.status == 'wycofany' ? ' opacity-50' : '' }}">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="lt-vehicle-icon{{ kind == 'wojskowy' ? ' is-military' : '' }}"><i class="bi {{ v.typ == 'autobus' ? 'bi-bus-front' : (v.typ in ['osobowy', 'osobowo_terenowy'] ? 'bi-car-front' : 'bi-truck') }}"></i></div>
+                            <div class="min-w-0">
+                                {{ ui.plate(v.nr_rejestracyjny, v.rodzaj) }}
+                                <div class="fw-semibold text-truncate mt-1">{{ v.marka }} {{ v.model }}</div>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-between small">
+                            <span>
+                                {% if item.busy %}<span class="lt-dot is-busy me-1"></span>W trasie
+                                {% elseif off %}<span class="lt-dot is-off me-1"></span>{{ options.status[v.status]|default(v.status) }}
+                                {% else %}<span class="lt-dot is-ok me-1"></span>Dostępny{% endif %}
+                            </span>
+                            <span class="text-muted">{{ v.przebieg is not null ? v.przebieg|number_format(0, ',', ' ') ~ ' km' : '' }}</span>
+                        </div>
+                        <div class="d-flex flex-wrap gap-1">
+                            {% for term in item.terms|filter(t => t.date) %}
+                                <span class="lt-term is-{{ term.level }}" title="{{ term.label }}: {{ term.date|date('d.m.Y') }}">{{ term.label|split(' ')|first }} {{ term.date|date('d.m.y') }}</span>
+                            {% endfor %}
+                        </div>
+                    </a>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endfor %}
+{% if not items %}
+    <div class="lt-card lt-empty"><i class="bi bi-truck"></i>Brak pojazdów{{ q ? ' dla „' ~ q ~ '”' : '' }}.</div>
+{% endif %}
+{% endblock %}

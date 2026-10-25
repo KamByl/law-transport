@@ -28,8 +28,69 @@ class InstallationSeeder
         $adminGroup = $this->seedAdminGroup();
         $this->seedGroupPermissions($adminGroup, $permissions);
         $this->seedDefaultUser($adminGroup, $adminUser);
+        $this->seedFleetGroups($permissions);
 
         $this->entityManager->flush();
+    }
+
+    /**
+     * Domyślne grupy frontendu LAW Transport. Tworzone tylko raz, później administrator zmienia je w /cms.
+     * Kierowca nie potrzebuje uprawnień: widzi swoje wyjazdy po powiązaniu e-maila w module Kierowcy.
+     *
+     * @param Permission[] $permissions
+     */
+    private function seedFleetGroups(array $permissions): void
+    {
+        $byCode = [];
+        foreach ($permissions as $permission) {
+            $byCode[$permission->getCode()] = $permission;
+        }
+
+        $groups = [
+            'Dyspozytorzy' => [
+                'pojazdy' => ['view', 'create', 'edit'],
+                'kierowcy' => ['view', 'create', 'edit'],
+                'wyjazdy' => ['view', 'create', 'edit', 'delete'],
+                'tankowania' => ['view', 'create', 'edit'],
+                'jednostka' => ['view'],
+            ],
+            'Podgląd' => [
+                'pojazdy' => ['view'],
+                'kierowcy' => ['view'],
+                'wyjazdy' => ['view'],
+                'tankowania' => ['view'],
+                'jednostka' => ['view'],
+            ],
+            'Kierowcy' => [],
+        ];
+
+        $repository = $this->entityManager->getRepository(Group::class);
+        foreach ($groups as $name => $grants) {
+            if ($repository->findOneBy(['name' => $name])) {
+                continue;
+            }
+
+            $group = new Group();
+            $group->setName($name);
+            $this->entityManager->persist($group);
+
+            foreach ($grants as $code => $actions) {
+                if (!isset($byCode[$code])) {
+                    continue;
+                }
+
+                $groupPermission = new GroupPermission();
+                $groupPermission->setGroup($group);
+                $groupPermission->setPermission($byCode[$code]);
+                $groupPermission->setAllowed(true);
+                $groupPermission->setCanView(in_array('view', $actions, true));
+                $groupPermission->setCanCreate(in_array('create', $actions, true));
+                $groupPermission->setCanEdit(in_array('edit', $actions, true));
+                $groupPermission->setCanDelete(in_array('delete', $actions, true));
+                $groupPermission->setCanStats(false);
+                $this->entityManager->persist($groupPermission);
+            }
+        }
     }
 
     /**

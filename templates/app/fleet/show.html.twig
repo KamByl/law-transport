@@ -1,0 +1,90 @@
+{% extends 'app/layout.html.twig' %}
+{% import 'app/_macros.html.twig' as ui %}
+{% set isVehicle = module == 'pojazdy' %}
+{% block topbar_actions %}
+    {% if ctx.can[module].edit %}<a href="/{{ module }}/{{ row.id }}/edycja" class="btn btn-outline-primary btn-sm"><i class="bi bi-pencil me-1"></i>Edytuj</a>{% endif %}
+    {% if isVehicle and ctx.can.tankowania.view %}<a href="/paliwo/rozliczenie/{{ row.id }}" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-printer me-1"></i>Karta pracy / paliwo</a>{% endif %}
+    {% if ctx.can.wyjazdy.create %}<a href="/wyjazdy/nowy?{{ isVehicle ? 'pojazd' : 'kierowca' }}={{ row.id }}" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg me-1"></i>Wyjazd</a>{% endif %}
+{% endblock %}
+{% block content %}
+<div class="mb-3"><a href="/{{ module }}" class="text-decoration-none small"><i class="bi bi-arrow-left me-1"></i>{{ isVehicle ? 'Pojazdy' : 'Kierowcy' }}</a></div>
+<div class="lt-hero mb-3">
+    <div class="d-flex align-items-center gap-3">
+        {% if isVehicle %}
+            <div class="lt-vehicle-icon is-military" style="width:56px;height:56px;font-size:1.6rem"><i class="bi bi-truck"></i></div>
+            <div>
+                <div class="mb-1">{{ ui.plate(row.nr_rejestracyjny, row.rodzaj) }}</div>
+                <h2>{{ row.marka }} {{ row.model }}</h2>
+                <p>{{ row.rodzaj == 'wojskowy' ? 'Pojazd wojskowy' : 'Pojazd cywilny' }}{{ row.nr_ewidencyjny ? ' · nr ewid. ' ~ row.nr_ewidencyjny : '' }} · {{ statusLabel ?: 'Sprawny' }}</p>
+            </div>
+        {% else %}
+            <span class="lt-avatar" style="width:56px;height:56px;font-size:1.1rem;background:var(--lt-sand-500);color:var(--lt-olive-950)">{{ (row.imie|first ~ row.nazwisko|first)|upper }}</span>
+            <div>
+                <h2>{{ ui.person(row) }}</h2>
+                <p>{{ row.pododdzial ?: 'Kierowca' }} · kat. {{ row.kategorie ?: '—' }} · {{ statusLabel ?: 'Dostępny' }}</p>
+            </div>
+        {% endif %}
+    </div>
+    {% if isVehicle %}
+    <div class="d-flex gap-4 text-center">
+        <div><div class="fs-4 fw-bold">{{ row.przebieg is not null ? row.przebieg|number_format(0, ',', ' ') : '—' }}</div><div class="small" style="color:var(--lt-sand-300)">km przebiegu</div></div>
+        <div><div class="fs-4 fw-bold">{{ row.stan_paliwa ?? '—' }}</div><div class="small" style="color:var(--lt-sand-300)">l w zbiorniku</div></div>
+    </div>
+    {% endif %}
+</div>
+<div class="row g-3">
+    <div class="col-lg-7">
+        <div class="lt-card mb-3">
+            <div class="lt-card-header"><h2><i class="bi bi-calendar-week me-2 text-secondary"></i>Najbliższe wyjazdy</h2></div>
+            <div class="lt-card-body pt-2">
+                {% for trip in upcoming %}{% include 'app/_trip_row.html.twig' %}{% else %}<div class="lt-empty py-3"><i class="bi bi-calendar-check"></i>Brak zaplanowanych wyjazdów na 60 dni.</div>{% endfor %}
+            </div>
+        </div>
+        <div class="lt-card mb-3">
+            <div class="lt-card-header"><h2><i class="bi bi-clock-history me-2 text-secondary"></i>Ostatnie zakończone</h2></div>
+            <div class="lt-card-body pt-2">
+                {% for trip in history %}{% include 'app/_trip_row.html.twig' %}{% else %}<div class="text-muted small">Brak zakończonych wyjazdów.</div>{% endfor %}
+            </div>
+        </div>
+        {% if fuel %}
+        <div class="lt-card">
+            <div class="lt-card-header"><h2><i class="bi bi-fuel-pump me-2 text-secondary"></i>Ostatnie tankowania</h2></div>
+            <div class="lt-card-body">
+                <table class="table lt-table table-sm">
+                    <thead><tr><th>Data</th><th class="text-end">Litry</th><th>Źródło</th><th>Kierowca</th></tr></thead>
+                    <tbody>{% for f in fuel %}<tr><td>{{ f.data|date('d.m.Y H:i') }}</td><td class="text-end fw-semibold">{{ f.ilosc }}</td><td class="small">{{ sources[f.zrodlo]|default(f.zrodlo) }}</td><td class="small">{{ f.kierowca_nazwisko }}</td></tr>{% endfor %}</tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    <div class="col-lg-5">
+        <div class="lt-card mb-3">
+            <div class="lt-card-header"><h2><i class="bi bi-alarm me-2 text-secondary"></i>Terminy</h2></div>
+            <div class="lt-card-body pt-2">
+                {% for term in terms %}
+                    <div class="lt-alert-item">
+                        {% if term.date %}{{ ui.days_badge(term.days, term.level) }}{% else %}<div class="lt-days" style="background:#eef0ea;color:#9aa08f">—</div>{% endif %}
+                        <div><div class="fw-semibold">{{ term.label }}</div><div class="small text-muted">{{ term.date ? term.date|date('d.m.Y') : 'nie wpisano' }}</div></div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="lt-card">
+            <div class="lt-card-header"><h2><i class="bi bi-card-list me-2 text-secondary"></i>Dane</h2></div>
+            <div class="lt-card-body">
+                <dl class="lt-dl small">
+                    {% for f in fields %}
+                        {% if f.section is defined %}
+                            </dl><div class="lt-section-title">{{ f.section }}</div><dl class="lt-dl small">
+                        {% elseif f.value is not null and f.value != '' %}
+                            <dt>{{ f.label }}</dt>
+                            <dd>{% if f.type == 'date' %}{{ f.value|date('d.m.Y') }}{% else %}{{ f.value }}{% endif %}</dd>
+                        {% endif %}
+                    {% endfor %}
+                </dl>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

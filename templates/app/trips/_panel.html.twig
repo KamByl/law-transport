@@ -1,0 +1,8 @@
+<h3 class="h5 fw-bold mb-2">{{ trip.cel }}</h3>
+{% include 'app/trips/_details.html.twig' %}
+{% include 'app/trips/_actions.html.twig' %}
+{% if (ctx.manager or isOwnTrip) and trip.status in ['zatwierdzony', 'w_realizacji'] %}
+    <hr>
+    {% include 'app/trips/_run.html.twig' with {odometer: vehicle.przebieg|default(''), fuelLevel: vehicle.stan_paliwa|default('')} %}
+{% endif %}
+<div class="mt-3"><a href="/wyjazdy/{{ trip.id }}" class="small">Pełna karta wyjazdu <i class="bi bi-box-arrow-up-right"></i></a></div>

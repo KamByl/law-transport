@@ -1,0 +1,11 @@
+<div class="print-head">
+    <div class="unit">
+        <div class="stamp">pieczęć jednostki</div>
+        <div>{{ unit.nazwa|default('………………………………………') }}</div>
+        {% if unit.nr_jednostki %}<div>JW {{ unit.nr_jednostki }}</div>{% endif %}
+    </div>
+    <div class="text-end">
+        {{ unit.miejscowosc|default('………………') }}, dnia {{ (date|default('now'))|date('d.m.Y') }} r.
+        {% if right is defined %}<div class="mt-2">{{ right|raw }}</div>{% endif %}
+    </div>
+</div>

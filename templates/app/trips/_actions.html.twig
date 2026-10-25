@@ -1,0 +1,32 @@
+{# Akcje wyjazdu: statusy, rozpoczęcie/zakończenie, dokumenty. Wymaga: trip, ctx, isOwnTrip, back #}
+{% set st = trip.status|default('planowany') %}
+{% set back = back|default('') %}
+<div class="d-flex flex-wrap gap-2">
+    {% if ctx.manager %}
+        {% for action in [
+            {key: 'zatwierdz', from: ['planowany'], label: 'Zatwierdź', icon: 'bi-patch-check', cls: 'btn-primary'},
+            {key: 'cofnij', from: ['zatwierdzony'], label: 'Cofnij zatwierdzenie', icon: 'bi-arrow-counterclockwise', cls: 'btn-outline-secondary'},
+            {key: 'anuluj', from: ['planowany', 'zatwierdzony'], label: 'Anuluj', icon: 'bi-x-circle', cls: 'btn-outline-danger', confirm: 'Anulować ten wyjazd?'},
+            {key: 'przywroc', from: ['anulowany'], label: 'Przywróć', icon: 'bi-arrow-repeat', cls: 'btn-outline-secondary'}
+        ] %}
+            {% if st in action.from %}
+                <form method="post" action="/wyjazdy/{{ trip.id }}/status"{% if action.confirm is defined %} data-confirm="{{ action.confirm }}"{% endif %}>
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="akcja" value="{{ action.key }}">
+                    {% if back %}<input type="hidden" name="powrot" value="{{ back }}">{% endif %}
+                    <button class="btn btn-sm {{ action.cls }}"><i class="bi {{ action.icon }} me-1"></i>{{ action.label }}</button>
+                </form>
+            {% endif %}
+        {% endfor %}
+    {% endif %}
+    {% if ctx.can.wyjazdy.edit and st not in ['zakonczony'] %}
+        <a href="/wyjazdy/{{ trip.id }}/edycja{{ back ? '?powrot=' ~ back|url_encode : '' }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil me-1"></i>Edytuj</a>
+    {% endif %}
+    <div class="dropdown">
+        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-printer me-1"></i>Dokumenty</button>
+        <ul class="dropdown-menu">
+            <li><a class="dropdown-item" href="/wyjazdy/{{ trip.id }}/rozkaz-wyjazdu" target="_blank"><i class="bi bi-file-earmark-text me-2"></i>Rozkaz wyjazdu</a></li>
+            <li><a class="dropdown-item" href="/wyjazdy/{{ trip.id }}/karta-drogowa" target="_blank"><i class="bi bi-file-earmark-ruled me-2"></i>Karta drogowa</a></li>
+        </ul>
+    </div>
+</div>

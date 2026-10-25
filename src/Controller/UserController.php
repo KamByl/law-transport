@@ -283,7 +283,8 @@ class UserController extends BaseController
             $request->headers->get('User-Agent')
         );
 
-        return new RedirectResponse('/cms');
+        // Podgląd systemu oczami użytkownika odbywa się we frontendzie.
+        return new RedirectResponse('/');
     }
 
     public function stopImpersonation(Request $request): Response

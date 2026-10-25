@@ -1,0 +1,52 @@
+{# Formularze rozpoczęcia i zakończenia jazdy (kierowca lub dyspozytor). Wymaga: trip, back #}
+{% set back = back|default('') %}
+{% if trip.status == 'zatwierdzony' %}
+    <form method="post" action="/wyjazdy/{{ trip.id }}/rozpocznij" class="row g-2 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        {% if back %}<input type="hidden" name="powrot" value="{{ back }}">{% endif %}
+        <div class="col-6">
+            <label class="form-label small fw-semibold">Licznik przy wyjeździe [km]</label>
+            <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control" name="licznik_start" value="{{ odometer|default('') }}" required>
+        </div>
+        <div class="col-6">
+            <label class="form-label small fw-semibold">Paliwo w zbiorniku [l]</label>
+            <input type="text" inputmode="decimal" class="form-control" name="paliwo_start" value="{{ fuelLevel|default('') }}">
+        </div>
+        <div class="col-12">
+            <button class="btn btn-sand w-100 py-2"><i class="bi bi-play-circle me-1"></i>Rozpocznij wyjazd</button>
+        </div>
+    </form>
+{% elseif trip.status == 'w_realizacji' %}
+    <form method="post" action="/wyjazdy/{{ trip.id }}/zakoncz" class="row g-2 align-items-end" data-confirm="Zakończyć wyjazd i zapisać rozliczenie?">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        {% if back %}<input type="hidden" name="powrot" value="{{ back }}">{% endif %}
+        <div class="col-6">
+            <label class="form-label small fw-semibold">Licznik przy powrocie [km]</label>
+            <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control" name="licznik_stop" required placeholder="min. {{ trip.licznik_start }}">
+        </div>
+        <div class="col-6">
+            <label class="form-label small fw-semibold">Paliwo po powrocie [l]</label>
+            <input type="text" inputmode="decimal" class="form-control" name="paliwo_stop">
+        </div>
+        <div class="col-12">
+            <details class="small">
+                <summary class="fw-semibold">Tankowanie w trasie</summary>
+                <div class="row g-2 mt-1">
+                    <div class="col-4"><input type="text" inputmode="decimal" class="form-control form-control-sm" name="tankowanie_ilosc" placeholder="litry"></div>
+                    <div class="col-8">
+                        <select class="form-select form-select-sm" name="tankowanie_zrodlo">
+                            {% for key, label in sources|default({}) %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12"><input type="text" class="form-control form-control-sm" name="tankowanie_dokument" placeholder="nr dokumentu / asygnaty"></div>
+                </div>
+            </details>
+        </div>
+        <div class="col-12">
+            <textarea class="form-control form-control-sm" name="uwagi_kierowcy" rows="2" placeholder="Uwagi z trasy (opcjonalnie)"></textarea>
+        </div>
+        <div class="col-12">
+            <button class="btn btn-primary w-100 py-2"><i class="bi bi-flag me-1"></i>Zakończ wyjazd</button>
+        </div>
+    </form>
+{% endif %}

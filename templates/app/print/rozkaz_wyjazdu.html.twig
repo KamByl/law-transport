@@ -1,0 +1,53 @@
+{% extends 'app/print/_layout.html.twig' %}
+{% import 'app/_macros.html.twig' as ui %}
+{% block pages %}
+<div class="print-page">
+    {% include 'app/print/_head.html.twig' with {date: trip.data_od, right: '<strong>Egz. nr 1</strong>'} %}
+    <h1>ROZKAZ WYJAZDU nr {{ trip.numer ?: '……/……' }}</h1>
+    <div class="subtitle">na wyjazd pojazdu {{ vehicle and vehicle.rodzaj == 'cywilny' ? 'służbowego' : 'wojskowego' }}</div>
+
+    <table class="print-table mb-3">
+        <tr><td class="lbl">Pojazd (marka, model)</td><td>{{ vehicle ? vehicle.marka ~ ' ' ~ vehicle.model : '' }}</td></tr>
+        <tr><td class="lbl">Numer rejestracyjny / ewidencyjny</td><td>{{ vehicle.nr_rejestracyjny|default('') }}{{ vehicle and vehicle.nr_ewidencyjny ? ' / ' ~ vehicle.nr_ewidencyjny : '' }}</td></tr>
+        <tr><td class="lbl">Kierowca (stopień, imię i nazwisko)</td><td>{{ driver ? ui.person(driver) : '' }}</td></tr>
+        <tr><td class="lbl">Prawo jazdy kat. / nr</td><td>{{ driver.kategorie|default('') }}{{ driver and driver.nr_prawa_jazdy ? ' / ' ~ driver.nr_prawa_jazdy : '' }}</td></tr>
+        {% if vehicle and vehicle.rodzaj == 'wojskowy' %}
+            <tr><td class="lbl">Pozwolenie do kierowania pojazdami wojskowymi</td><td>{{ driver.nr_pozwolenia_wojskowego|default('') }}{{ driver and driver.pozwolenie_wojskowe_do ? ', ważne do ' ~ driver.pozwolenie_wojskowe_do|date('d.m.Y') : '' }}</td></tr>
+        {% endif %}
+        <tr><td class="lbl">Dowódca pojazdu / starszy pojazdu</td><td>{{ trip.dowodca }}</td></tr>
+        <tr><td class="lbl">Cel wyjazdu</td><td>{{ trip.cel }}</td></tr>
+        <tr><td class="lbl">Trasa</td><td>{{ trip.miejsce_wyjazdu }}{{ trip.trasa ? ' – ' ~ trip.trasa : '' }} – {{ trip.miejsce_docelowe }} – {{ trip.miejsce_wyjazdu }}</td></tr>
+        <tr><td class="lbl">Termin wyjazdu</td><td>{{ trip.data_od|date('d.m.Y') }} r., godz. {{ trip.data_od|date('H:i') }}</td></tr>
+        <tr><td class="lbl">Planowany powrót</td><td>{{ trip.data_do|date('d.m.Y') }} r., godz. {{ trip.data_do|date('H:i') }}</td></tr>
+        <tr><td class="lbl">Przewożone osoby / ładunek</td><td>{{ trip.liczba_osob is not null ? trip.liczba_osob ~ ' os.' : '' }}{{ trip.liczba_osob is not null and trip.ladunek ? '; ' : '' }}{{ trip.ladunek }}</td></tr>
+        <tr><td class="lbl">Zlecający</td><td>{{ trip.zlecajacy }}</td></tr>
+    </table>
+
+    <h2>Kontrola przed wyjazdem</h2>
+    <table class="print-table">
+        <tr><th style="width:50%">Stan techniczny pojazdu</th><th>Stan trzeźwości i gotowość kierowcy</th></tr>
+        <tr>
+            <td class="blank">sprawny / niesprawny*<br><br>……………………………………<br><small>podpis kontrolującego</small></td>
+            <td class="blank">sprawdzono / nie sprawdzono*<br><br>……………………………………<br><small>podpis kontrolującego</small></td>
+        </tr>
+    </table>
+
+    <h2>Potwierdzenie</h2>
+    <table class="print-table">
+        <tr><th>Wyjazd z jednostki (godz., licznik)</th><th>Powrót do jednostki (godz., licznik)</th></tr>
+        <tr>
+            <td class="blank">{{ trip.faktyczny_wyjazd ? trip.faktyczny_wyjazd|date('d.m.Y H:i') : '' }}{{ trip.licznik_start is not null ? ', ' ~ trip.licznik_start ~ ' km' : '' }}</td>
+            <td class="blank">{{ trip.faktyczny_powrot ? trip.faktyczny_powrot|date('d.m.Y H:i') : '' }}{{ trip.licznik_stop is not null ? ', ' ~ trip.licznik_stop ~ ' km' : '' }}</td>
+        </tr>
+    </table>
+
+    <div class="print-signs">
+        <div>Kierowca<br><small>(podpis)</small></div>
+        <div>{{ unit.szef_sluzby ?: 'Szef służby transportowej' }}<br><small>(podpis)</small></div>
+        <div>ZATWIERDZAM<br>{{ unit.dowodca ?: 'Dowódca / kierownik' }}<br><small>(podpis)</small></div>
+    </div>
+    {% if trip.zatwierdzil %}<p class="small mt-3 mb-0">Zatwierdzono w systemie: {{ trip.zatwierdzil }}.</p>{% endif %}
+    <p class="small mt-2">* niepotrzebne skreślić</p>
+    {% include 'app/print/_foot.html.twig' %}
+</div>
+{% endblock %}

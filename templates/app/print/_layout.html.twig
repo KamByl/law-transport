@@ -1,0 +1,12 @@
+{% extends 'layout/base.html.twig' %}
+{% set body_class = 'app-body' %}
+{% block stylesheets %}<link href="/assets/css/front.css" rel="stylesheet">{% endblock %}
+{% block body %}
+<div class="print-toolbar">
+    <strong>{{ title }}</strong>
+    <span class="small" style="color: var(--lt-sand-300)">Wzór przykładowy. Uzupełnij odręcznie pola puste.</span>
+    <button type="button" class="btn btn-sand btn-sm ms-auto" onclick="window.print()"><i class="bi bi-printer me-1"></i>Drukuj / zapisz PDF</button>
+    <button type="button" class="btn btn-outline-light btn-sm" onclick="window.close()">Zamknij</button>
+</div>
+{% block pages %}{% endblock %}
+{% endblock %}

@@ -14,6 +14,7 @@ use App\Service\SystemSettingsProvider;
 use App\Twig\UrlExtension;
 use Doctrine\ORM\EntityManager;
 use Doctrine\ORM\ORMSetup;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\Session\Session;
@@ -94,6 +95,10 @@ class Bootstrap
 
             if ($this->isAdminCsrfProtectionRequired($request) && !$this->csrfService->isTokenValid($request)) {
                 return $this->applySecurityHeaders($request, new Response('Nieprawidłowy token CSRF.', Response::HTTP_FORBIDDEN));
+            }
+
+            if ($this->isCmsAccessDenied($request)) {
+                return $this->applySecurityHeaders($request, new RedirectResponse('/'));
             }
 
             if ($this->isAutomationRequest($request) && !$this->isAutomationRequestAuthorized($request)) {
@@ -327,7 +332,28 @@ class Bootstrap
             return false;
         }
 
-        return str_starts_with($request->getPathInfo(), '/cms');
+        $path = $request->getPathInfo();
+
+        return !str_starts_with($path, '/cron/') && !str_starts_with($path, '/smsapi/');
+    }
+
+    /**
+     * Panel /cms jest tylko dla administratorów. Pozostali użytkownicy pracują we frontendzie.
+     */
+    private function isCmsAccessDenied(Request $request): bool
+    {
+        $path = $request->getPathInfo();
+        if ($path !== '/cms' && !str_starts_with($path, '/cms/')) {
+            return false;
+        }
+
+        if (in_array($path, ['/cms/login', '/cms/logout', '/cms/users/impersonate/stop'], true)) {
+            return false;
+        }
+
+        $user = $this->authService->user();
+
+        return $user !== null && !$this->permissionService->isAdministrator($user);
     }
 
     private function renderMaintenancePage(): Response
@@ -508,6 +534,7 @@ class Bootstrap
 
         $twig = new Environment($loader, [
             'cache' => $cacheEnabled ? $cacheDir : false,
+            'auto_reload' => (bool) ($twigConfig['auto_reload'] ?? true),
         ]);
 
         $twig->addExtension($this->urlExtension);

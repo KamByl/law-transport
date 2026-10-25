@@ -1,0 +1,25 @@
+{% import 'app/_macros.html.twig' as ui %}
+<div id="tripTable">
+{% if trips %}
+<div class="table-responsive">
+    <table class="table lt-table">
+        <thead><tr><th>Termin</th><th>Cel / trasa</th><th>Pojazd</th><th>Kierowca</th><th>Status</th><th class="text-end">Nr</th></tr></thead>
+        <tbody>
+        {% for trip in trips %}
+            <tr class="lt-row-link" data-href="/wyjazdy/{{ trip.id }}">
+                <td class="text-nowrap"><strong>{{ trip.data_od|date('d.m.Y') }}</strong><div class="small text-muted">{{ trip.data_od|date('H:i') }} – {{ trip.data_do|date(trip.data_do|date('Y-m-d') == trip.data_od|date('Y-m-d') ? 'H:i' : 'd.m H:i') }}</div></td>
+                <td><a href="/wyjazdy/{{ trip.id }}" class="fw-semibold text-body text-decoration-none">{{ trip.cel }}</a><div class="small text-muted">{{ trip.miejsce_wyjazdu }}{{ trip.miejsce_wyjazdu and trip.miejsce_docelowe ? ' → ' : '' }}{{ trip.miejsce_docelowe }}</div></td>
+                <td>{{ ui.plate(trip.pojazd_nr, trip.pojazd_rodzaj) }}</td>
+                <td class="small">{{ ui.driver_name(trip) }}</td>
+                <td>{{ ui.status(trip.status, ui.status_label(trip.status)) }}</td>
+                <td class="text-end small text-muted text-nowrap">{{ trip.numer }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% if trips|length >= 200 %}<div class="small text-muted px-2 pb-2">Pokazano 200 najnowszych. Zawęź filtry, aby zobaczyć starsze.</div>{% endif %}
+{% else %}
+    <div class="lt-empty"><i class="bi bi-signpost-split"></i>Brak wyjazdów spełniających kryteria.</div>
+{% endif %}
+</div>

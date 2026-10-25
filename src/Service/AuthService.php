@@ -147,7 +147,7 @@ class AuthService
             return false;
         }
 
-        if (!password_verify($password, $user->getPasswordHash())) {
+        if (!$user->isActive() || !password_verify($password, $user->getPasswordHash())) {
             $this->recordLoginAttempt($user, $normalizedEmail, $ipAddress, $userAgent, false);
             return false;
         }
@@ -172,7 +172,9 @@ class AuthService
             return null;
         }
 
-        return $this->entityManager->find(User::class, $_SESSION[self::USER_ID_SESSION_KEY]);
+        $user = $this->entityManager->find(User::class, $_SESSION[self::USER_ID_SESSION_KEY]);
+
+        return $user instanceof User && $user->isActive() ? $user : null;
     }
 
     public function impersonator(): ?User

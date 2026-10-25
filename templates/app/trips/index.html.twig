@@ -1,0 +1,47 @@
+{% extends 'app/layout.html.twig' %}
+{% block content %}
+<div class="lt-card mb-3">
+    <div class="lt-card-body">
+        <form class="lt-filter-bar" method="get" action="/wyjazdy" hx-get="/wyjazdy" hx-target="#tripTable" hx-select="#tripTable" hx-swap="outerHTML" hx-trigger="change, keyup changed delay:400ms from:input[name=q]" hx-push-url="true">
+            <div class="flex-grow-1">
+                <label class="form-label small text-muted mb-1">Szukaj</label>
+                <input type="search" name="q" value="{{ filters.q }}" class="form-control" placeholder="Numer, cel, miejsce, pojazd, kierowca…">
+            </div>
+            <div>
+                <label class="form-label small text-muted mb-1">Status</label>
+                <select name="status" class="form-select">
+                    <option value="">Wszystkie</option>
+                    {% for key, label in statuses %}<option value="{{ key }}"{{ filters.status == key ? ' selected' : '' }}>{{ label }}</option>{% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="form-label small text-muted mb-1">Pojazd</label>
+                <select name="pojazd" class="form-select">
+                    <option value="">Wszystkie</option>
+                    {% for v in vehicles %}<option value="{{ v.id }}"{{ filters.pojazd == v.id ? ' selected' : '' }}>{{ v.nr_rejestracyjny }}</option>{% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="form-label small text-muted mb-1">Kierowca</label>
+                <select name="kierowca" class="form-select">
+                    <option value="">Wszyscy</option>
+                    {% for d in drivers %}<option value="{{ d.id }}"{{ filters.kierowca == d.id ? ' selected' : '' }}>{{ d.nazwisko }} {{ d.imie }}</option>{% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="form-label small text-muted mb-1">Od</label>
+                <input type="date" name="od" value="{{ filters.od }}" class="form-control">
+            </div>
+            <div>
+                <label class="form-label small text-muted mb-1">Do</label>
+                <input type="date" name="do" value="{{ filters.do }}" class="form-control">
+            </div>
+            <noscript><button class="btn btn-primary">Filtruj</button></noscript>
+            <a href="/wyjazdy" class="btn btn-link">Wyczyść</a>
+        </form>
+    </div>
+</div>
+<div class="lt-card">
+    {% include 'app/trips/_table.html.twig' %}
+</div>
+{% endblock %}

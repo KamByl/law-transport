@@ -9,9 +9,114 @@ $routes->add('smsapi_delivery_report', new Route('/smsapi/delivery-report', [
     '_controller' => 'App\\Controller\\SmsDeliveryReportController::receive',
 ], [], [], '', [], ['GET', 'POST']));
 
+// Frontend LAW Transport (dyspozytorzy, kierowcy, podgląd)
 $routes->add('home', new Route('/', [
-    '_controller' => 'App\\Controller\\FrontendController::home',
-]));
+    '_controller' => 'App\\Controller\\App\\DashboardController::index',
+], [], [], '', [], []));
+
+$routes->add('app_login', new Route('/logowanie', [
+    '_controller' => 'App\\Controller\\App\\LoginController::login',
+], [], [], '', [], ['GET', 'POST']));
+
+$routes->add('app_logout', new Route('/wyloguj', [
+    '_controller' => 'App\\Controller\\App\\LoginController::logout',
+], [], [], '', [], ['GET']));
+
+$routes->add('app_planner', new Route('/planer', [
+    '_controller' => 'App\\Controller\\App\\PlannerController::index',
+], [], [], '', [], ['GET']));
+
+$routes->add('app_planner_data', new Route('/planer/dane', [
+    '_controller' => 'App\\Controller\\App\\PlannerController::data',
+], [], [], '', [], ['GET']));
+
+$routes->add('app_planner_save', new Route('/planer/wyjazd/{id}', [
+    '_controller' => 'App\\Controller\\App\\PlannerController::save',
+], ['id' => '\d+'], [], '', [], ['POST']));
+
+$routes->add('app_trips', new Route('/wyjazdy', [
+    '_controller' => 'App\\Controller\\App\\TripController::index',
+], [], [], '', [], ['GET']));
+
+$routes->add('app_trip_create', new Route('/wyjazdy/nowy', [
+    '_controller' => 'App\\Controller\\App\\TripController::create',
+], [], [], '', [], ['GET', 'POST']));
+
+$routes->add('app_trip_show', new Route('/wyjazdy/{id}', [
+    '_controller' => 'App\\Controller\\App\\TripController::show',
+], ['id' => '\d+'], [], '', [], ['GET']));
+
+$routes->add('app_trip_edit', new Route('/wyjazdy/{id}/edycja', [
+    '_controller' => 'App\\Controller\\App\\TripController::edit',
+], ['id' => '\d+'], [], '', [], ['GET', 'POST']));
+
+$routes->add('app_trip_status', new Route('/wyjazdy/{id}/status', [
+    '_controller' => 'App\\Controller\\App\\TripController::changeStatus',
+], ['id' => '\d+'], [], '', [], ['POST']));
+
+$routes->add('app_trip_start', new Route('/wyjazdy/{id}/rozpocznij', [
+    '_controller' => 'App\\Controller\\App\\TripController::start',
+], ['id' => '\d+'], [], '', [], ['POST']));
+
+$routes->add('app_trip_finish', new Route('/wyjazdy/{id}/zakoncz', [
+    '_controller' => 'App\\Controller\\App\\TripController::finish',
+], ['id' => '\d+'], [], '', [], ['POST']));
+
+$routes->add('app_trip_delete', new Route('/wyjazdy/{id}/usun', [
+    '_controller' => 'App\\Controller\\App\\TripController::delete',
+], ['id' => '\d+'], [], '', [], ['POST']));
+
+$routes->add('app_trip_document', new Route('/wyjazdy/{id}/{type}', [
+    '_controller' => 'App\\Controller\\App\\TripController::document',
+], ['id' => '\d+', 'type' => 'rozkaz-wyjazdu|karta-drogowa'], [], '', [], ['GET']));
+
+$routes->add('app_my_trips', new Route('/moje-wyjazdy', [
+    '_controller' => 'App\\Controller\\App\\DriverController::myTrips',
+], [], [], '', [], ['GET']));
+
+$routes->add('app_vehicles', new Route('/pojazdy', [
+    '_controller' => 'App\\Controller\\App\\FleetController::vehicles',
+], [], [], '', [], ['GET']));
+
+$routes->add('app_vehicle_create', new Route('/pojazdy/nowy', [
+    '_controller' => 'App\\Controller\\App\\FleetController::vehicleForm',
+], [], [], '', [], ['GET', 'POST']));
+
+$routes->add('app_vehicle_show', new Route('/pojazdy/{id}', [
+    '_controller' => 'App\\Controller\\App\\FleetController::vehicle',
+], ['id' => '\d+'], [], '', [], ['GET']));
+
+$routes->add('app_vehicle_edit', new Route('/pojazdy/{id}/edycja', [
+    '_controller' => 'App\\Controller\\App\\FleetController::vehicleForm',
+], ['id' => '\d+'], [], '', [], ['GET', 'POST']));
+
+$routes->add('app_drivers', new Route('/kierowcy', [
+    '_controller' => 'App\\Controller\\App\\FleetController::drivers',
+], [], [], '', [], ['GET']));
+
+$routes->add('app_driver_create', new Route('/kierowcy/nowy', [
+    '_controller' => 'App\\Controller\\App\\FleetController::driverForm',
+], [], [], '', [], ['GET', 'POST']));
+
+$routes->add('app_driver_show', new Route('/kierowcy/{id}', [
+    '_controller' => 'App\\Controller\\App\\FleetController::driver',
+], ['id' => '\d+'], [], '', [], ['GET']));
+
+$routes->add('app_driver_edit', new Route('/kierowcy/{id}/edycja', [
+    '_controller' => 'App\\Controller\\App\\FleetController::driverForm',
+], ['id' => '\d+'], [], '', [], ['GET', 'POST']));
+
+$routes->add('app_deadlines', new Route('/terminy', [
+    '_controller' => 'App\\Controller\\App\\FleetController::deadlines',
+], [], [], '', [], ['GET']));
+
+$routes->add('app_fuel', new Route('/paliwo', [
+    '_controller' => 'App\\Controller\\App\\FuelController::index',
+], [], [], '', [], ['GET', 'POST']));
+
+$routes->add('app_fuel_settlement', new Route('/paliwo/rozliczenie/{id}', [
+    '_controller' => 'App\\Controller\\App\\FuelController::settlement',
+], ['id' => '\d+'], [], '', [], ['GET']));
 
 $routes->add('meta_json', new Route('/meta.json', [
     '_controller' => 'App\\Controller\\FrontendController::metaJson',
