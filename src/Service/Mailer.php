@@ -661,8 +661,9 @@ class Mailer
         if ($encryption !== '') {
             $query['encryption'] = $encryption;
         }
-        if ($smtpConfig['use_local_domain']) {
-            $query['local_domain'] = 'mail.m1loteria.pl';
+        $senderDomain = strtolower((string) substr(strrchr($smtpConfig['from_email'], '@') ?: '', 1));
+        if ($smtpConfig['use_local_domain'] && $senderDomain !== '') {
+            $query['local_domain'] = $senderDomain;
         }
 
         if ($query !== []) {

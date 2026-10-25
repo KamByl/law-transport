@@ -8,13 +8,6 @@
     </div>
     {% if canCreate %}
         <div class="d-flex gap-2">
-            {% if moduleKey in ['lista_wygranych_kodow'] %}
-                <a class="btn btn-outline-primary" href="/cms/modules/{{ moduleKey }}/import-winning-codes">Dodaj nowe kody</a>
-            {% endif %}
-            {% if moduleKey == 'zwyciezcy' %}
-                <a class="btn btn-outline-primary" href="/cms/modules/{{ moduleKey }}/import-winners-csv">Dodaj wielu zwycięzców</a>
-                <a class="btn btn-outline-secondary" href="/cms/modules/{{ moduleKey }}/import-winners-csv#historia-importow">Logi importu</a>
-            {% endif %}
             <a class="btn btn-primary" href="/cms/modules/{{ moduleKey }}/create">Dodaj wpis</a>
         </div>
     {% endif %}
@@ -23,21 +16,6 @@
 <div class="card p-4">
     {% if alert %}
         <div class="alert alert-{{ alert.type }} mb-3">{{ alert.message }}</div>
-    {% endif %}
-    {% if moduleKey == 'zwyciezcy' and winnerPostCreateQueueSummary is not null %}
-        {% set remainingWinners = winnerPostCreateQueueSummary.remaining|default(0) %}
-        <div class="alert {{ remainingWinners > 0 ? 'alert-info' : 'alert-success' }} mb-3" role="status">
-            <div class="d-flex flex-wrap align-items-center gap-2">
-                <strong>Przetwarzanie zwycięzców</strong>
-                <span>Do przetworzenia:</span>
-                <span class="badge text-bg-primary">{{ remainingWinners }}</span>
-                <span class="text-muted">(oczekuje: {{ winnerPostCreateQueueSummary.pending|default(0) }}, w trakcie: {{ winnerPostCreateQueueSummary.processing|default(0) }})</span>
-                {% if winnerPostCreateQueueSummary.failed|default(0) > 0 %}
-                    <span class="badge text-bg-danger">Błędy: {{ winnerPostCreateQueueSummary.failed }}</span>
-                {% endif %}
-            </div>
-            <div class="small mt-1">Kody nagród i wiadomości e-mail są obsługiwane przez kolejkę CRON.</div>
-        </div>
     {% endif %}
     <form class="row g-2 align-items-center mb-3" method="get" action="/cms/modules/{{ moduleKey }}">
         <div class="col-sm-6 col-md-4">
@@ -124,7 +102,7 @@
                 <button class="btn btn-outline-secondary btn-sm" type="button" data-columns-settings-open>
                     <i class="bi bi-sliders me-1"></i> Ustawienia
                 </button>
-                {% if canCreate and moduleKey != 'zwyciezcy' %}
+                {% if canCreate %}
                     <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#csvImportModal">Import CSV</button>
                 {% endif %}
                 <span class="text-muted small">
@@ -169,98 +147,13 @@
         <input type="hidden" name="ids" value="" data-export-selected-ids>
         <button class="btn btn-outline-secondary btn-sm" type="submit" data-export-submit-button>Pobierz</button>
     </form>
-    {% if moduleKey in ['lista_wygranych_kodow', 'kody_graficzne'] and winningCodesUsageSummary is defined and winningCodesUsageSummary is not empty %}
-        <div class="table-responsive mb-3">
-            <table class="table table-sm table-bordered align-middle">
-                <thead>
-                    <tr>
-                        <th>Wartość kodu</th>
-                        <th class="text-end">Wykorzystane</th>
-                        <th class="text-end">Niewykorzystane</th>
-                        <th class="text-end">Wszystkie</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for usageSummaryRow in winningCodesUsageSummary %}
-                        <tr>
-                            <td>{{ usageSummaryRow.wartosc_kodu }}</td>
-                            <td class="text-end">{{ usageSummaryRow.wykorzystane }}</td>
-                            <td class="text-end">{{ usageSummaryRow.niewykorzystane }}</td>
-                            <td class="text-end fw-semibold">{{ usageSummaryRow.wszystkie }}</td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    {% endif %}
     {% if canEdit and extraActions %}
-        {% if moduleKey == 'zwyciezcy' and winnerFormReminder is not null %}
-            <div class="border rounded bg-light p-3 mb-3">
-                <div class="d-flex flex-wrap align-items-end justify-content-between gap-3">
-                    <div>
-                        <div class="fw-semibold">Przypomnienie o formularzu zwycięzcy</div>
-                        <div class="text-muted small">
-                            Osoby z aktywnym i niewypełnionym formularzem:
-                            <strong>{{ winnerFormReminder.recipient_count }}</strong>
-                            · wiadomości do wysłania: <strong>{{ winnerFormReminder.count }}</strong>
-                            {% if winnerFormReminder.active_until %}
-                                · formularze aktywne do końca dnia {{ winnerFormReminder.active_until|date('d.m.Y') }}
-                            {% elseif winnerFormReminder.validity_days > 0 %}
-                                · ważność: {{ winnerFormReminder.validity_days }} dni od pierwszego maila
-                            {% else %}
-                                · brak ustawionego terminu ważności
-                            {% endif %}
-                        </div>
-                    </div>
-                    <form
-                        method="post"
-                        action="/cms/modules/{{ moduleKey }}/extra-action/send_pending_winner_form_reminders"
-                        class="d-flex flex-wrap align-items-end gap-2"
-                        onsubmit="return confirm('Czy wysłać {{ winnerFormReminder.count }} wiadomości do {{ winnerFormReminder.recipient_count }} osób?');"
-                    >
-                        {% include 'backend/_csrf_token.html.twig' %}
-                        <div>
-                            <label class="form-label small mb-1" for="winner-form-reminder-template">Szablon e-mail</label>
-                            <select
-                                class="form-select form-select-sm"
-                                id="winner-form-reminder-template"
-                                name="email_template_id"
-                                required
-                                {% if winnerFormReminder.count == 0 or winnerFormReminder.templates is empty %}disabled{% endif %}
-                            >
-                                <option value="">Wybierz szablon</option>
-                                {% for templateId, templateName in winnerFormReminder.templates %}
-                                    <option value="{{ templateId }}">{{ templateName }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <button
-                            class="btn btn-outline-primary btn-sm"
-                            type="submit"
-                            {% if winnerFormReminder.count == 0 or winnerFormReminder.templates is empty %}disabled{% endif %}
-                        >
-                            Wyślij przypomnienie
-                        </button>
-                    </form>
-                </div>
-                {% if winnerFormReminder.templates is empty %}
-                    <div class="text-danger small mt-2">Brak dostępnych szablonów e-mail.</div>
-                {% endif %}
-            </div>
-        {% endif %}
         <div class="d-flex flex-wrap justify-content-end gap-2 mb-3">
-            {% if moduleKey == 'zwyciezcy' and pendingWinnerPrizesCount is not null %}
-                <span class="badge text-bg-light border text-start">
-                    Zaległe zgłoszenia: {{ pendingWinnerPrizesCount }}
-                </span>
-            {% endif %}
             {% for extraActionItem in extraActions %}
-                {% if extraActionItem.key != 'send_pending_winner_form_reminders' %}
-                    <form method="post" action="/cms/modules/{{ moduleKey }}/extra-action/{{ extraActionItem.key }}" class="d-inline"{% if extraActionItem.confirm is defined %} onsubmit="return confirm('{{ extraActionItem.confirm|e('js') }}');"{% endif %}>
-                        {% include 'backend/_csrf_token.html.twig' %}
-                        <button class="btn btn-outline-secondary btn-sm" type="submit">{{ extraActionItem.label }}</button>
-                    </form>
-                {% endif %}
+                <form method="post" action="/cms/modules/{{ moduleKey }}/extra-action/{{ extraActionItem.key }}" class="d-inline"{% if extraActionItem.confirm is defined %} onsubmit="return confirm('{{ extraActionItem.confirm|e('js') }}');"{% endif %}>
+                    {% include 'backend/_csrf_token.html.twig' %}
+                    <button class="btn btn-outline-secondary btn-sm" type="submit">{{ extraActionItem.label }}</button>
+                </form>
             {% endfor %}
         </div>
     {% endif %}
@@ -442,7 +335,7 @@
                             {% if canDelete %}
                                 <form method="post" action="/cms/modules/{{ moduleKey }}/{{ row[primaryKey] }}/delete" class="d-inline" onsubmit="return handleModuleDeleteSubmit(this);" data-module-delete-form="true">
                                     {% include 'backend/_csrf_token.html.twig' %}
-                                    <input type="hidden" name="delete_related_lottery_items" value="0" data-delete-related-input="true">
+                                    <input type="hidden" name="delete_related_items" value="0" data-delete-related-input="true">
                                     <button class="btn btn-sm btn-outline-danger module-action-button" type="submit" title="Usuń" aria-label="Usuń">
                                         <i class="bi bi-trash" aria-hidden="true"></i>
                                     </button>
@@ -760,7 +653,7 @@
         refreshState();
     });
 </script>
-{% if canCreate and moduleKey != 'zwyciezcy' %}
+{% if canCreate %}
 <div class="modal fade" id="csvImportModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -1003,8 +896,9 @@ document.addEventListener('click', (event) => {
             relatedInput.value = '0';
         }
 
-        if ('{{ moduleKey }}' === 'loteria_zgloszenia') {
-            const shouldDeleteRelated = confirm('Czy chcesz usunąć także powiązane losy i zdrapki?');
+        const deleteRelatedConfirm = {{ module.list.delete_related_confirm|default('')|json_encode|raw }};
+        if (deleteRelatedConfirm) {
+            const shouldDeleteRelated = confirm(deleteRelatedConfirm);
             if (relatedInput) {
                 relatedInput.value = shouldDeleteRelated ? '1' : '0';
             }
