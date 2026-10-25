@@ -1,0 +1,2361 @@
+{% extends 'layout/backend.html.twig' %}
+
+{% set canBrowseFiles = permissionService.can(user, 'pliki', 'view') %}
+{% set moduleViewConfig = module.view|default({}) %}
+{% set plainReadOnlyView = readOnly|default(false) and moduleViewConfig.display_mode|default('form') == 'text' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="h3 mb-1">{{ title }}</h1>
+        <p class="text-muted mb-0">{{ plainReadOnlyView ? 'Podgląd danych wpisu.' : 'Uzupełnij dane wpisu.' }}</p>
+    </div>
+    <div class="d-flex gap-2">
+        {% if showWinnerEmailOption|default(false) %}
+            <a class="btn btn-outline-primary" href="/cms/modules/{{ moduleKey }}/import-winners-csv">Dodaj kilka ID naraz</a>
+        {% endif %}
+        <a class="btn btn-outline-secondary" href="{{ backUrl|default('/cms/modules/' ~ moduleKey) }}">Wróć</a>
+    </div>
+</div>
+
+<div class="card p-4">
+    {% set readOnlyMode = readOnly|default(false) %}
+    {% if alert %}
+        <div class="alert alert-{{ alert.type }} mb-3">{{ alert.message }}</div>
+    {% endif %}
+    {% if errors is not empty %}
+        <div class="alert alert-danger">
+            <ul class="mb-0">
+                {% for error in errors %}
+                    <li>{{ error }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+    <form method="post" enctype="multipart/form-data">
+        {% include 'backend/_csrf_token.html.twig' %}
+        {% set hasWysiwyg = false %}
+        {% set hasDateTime = false %}
+        {% set tabs = [] %}
+        {% set hasTabs = false %}
+        {% set currentTabKey = 'default' %}
+        {% set currentTabLabel = '' %}
+        {% set sections = [] %}
+        {% set currentSection = { label: null, text: null, fields: [], tabKey: currentTabKey } %}
+        {% set hasDependentRelations = false %}
+        {% set hasConditionalVisibility = false %}
+        {% for field in fields %}
+            {% set fieldType = field.type|default('text')|lower %}
+                {% set isFieldReadOnly = readOnlyMode or field.readonly|default(false) %}
+            {% if fieldType == 'tab' %}
+                {% set hasTabs = true %}
+                {% if tabs is empty and (currentSection.fields is not empty or currentSection.label or currentSection.text) %}
+                    {% set tabs = [{ key: currentTabKey, label: currentTabLabel ?: 'Główna' }] %}
+                {% endif %}
+                {% if currentSection.fields is not empty or currentSection.label or currentSection.text %}
+                    {% set sections = sections|merge([currentSection]) %}
+                {% endif %}
+                {% set currentTabKey = field.key|default(field.label|default('tab-' ~ loop.index)|lower|replace({' ': '-', '_': '-', '/': '-'})) %}
+                {% set currentTabLabel = field.label|default(currentTabKey) %}
+                {% set tabExists = false %}
+                {% for existingTab in tabs %}
+                    {% if existingTab.key == currentTabKey %}
+                        {% set tabExists = true %}
+                    {% endif %}
+                {% endfor %}
+                {% if not tabExists %}
+                    {% set tabs = tabs|merge([{ key: currentTabKey, label: currentTabLabel }]) %}
+                {% endif %}
+                {% set currentSection = { label: null, text: null, fields: [], tabKey: currentTabKey } %}
+            {% elseif fieldType == 'section' %}
+                {% if currentSection.fields is not empty or currentSection.label or currentSection.text %}
+                    {% set sections = sections|merge([currentSection]) %}
+                {% endif %}
+                {% set currentSection = {
+                    label: field.label|default(''),
+                    text: field.text|default(''),
+                    fields: [],
+                    tabKey: currentTabKey
+                } %}
+            {% else %}
+                {% if fieldType == 'relation' and field.depends_on|default('') %}
+                    {% set hasDependentRelations = true %}
+                {% endif %}
+                {% if field.visible_if is defined and field.visible_if %}
+                    {% set hasConditionalVisibility = true %}
+                {% endif %}
+                {% set currentSection = currentSection|merge({ fields: currentSection.fields|merge([field]) }) %}
+            {% endif %}
+        {% endfor %}
+        {% if currentSection.fields is not empty or currentSection.label or currentSection.text %}
+            {% set sections = sections|merge([currentSection]) %}
+        {% endif %}
+        {% if hasTabs and tabs is empty %}
+            {% set tabs = [{ key: 'default', label: 'Główna' }] %}
+        {% endif %}
+        {% set activeTabKey = (hasTabs and tabs is not empty) ? tabs[0].key : 'default' %}
+
+        {% if hasTabs %}
+            <ul class="nav nav-tabs mb-4" role="tablist">
+                {% for tab in tabs %}
+                    <li class="nav-item" role="presentation">
+                        <button
+                            class="nav-link {% if tab.key == activeTabKey %}active{% endif %}"
+                            type="button"
+                            data-module-tab-trigger="{{ tab.key }}"
+                        >
+                            {{ tab.label }}
+                        </button>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+
+        {% for section in sections %}
+            {% set sectionTabKey = section.tabKey|default('default') %}
+            <div data-module-tab-panel="{{ sectionTabKey }}"{% if hasTabs and sectionTabKey != activeTabKey %} class="d-none"{% endif %}>
+            {% set hasHeader = section.label or section.text %}
+            {% if hasHeader %}
+                <div class="border rounded p-3 mb-4">
+                    {% if section.label %}
+                        <h2 class="h5 mb-1">{{ section.label }}</h2>
+                    {% endif %}
+                    {% if section.text %}
+                        <p class="text-muted mb-3">{{ section.text }}</p>
+                    {% endif %}
+            {% endif %}
+            {% for field in section.fields %}
+                {% set fieldName = field.name|default('') %}
+                {% set fieldType = field.type|default('text')|lower %}
+                {% set isFieldReadOnly = readOnlyMode or field.readonly|default(false) %}
+                {% if fieldName and (field.form is not defined or field.form) %}
+                    {% set visibleIf = field.visible_if|default(null) %}
+                    {% set visibleIfField = '' %}
+                    {% set visibleIfValues = [] %}
+                    {% if visibleIf %}
+                        {% if visibleIf.field is defined %}
+                            {% set visibleIfField = visibleIf.field %}
+                        {% elseif visibleIf.name is defined %}
+                            {% set visibleIfField = visibleIf.name %}
+                        {% elseif visibleIf[0] is defined and visibleIf[0] is not iterable %}
+                            {% set visibleIfField = visibleIf[0] %}
+                        {% endif %}
+                        {% if visibleIf.values is defined %}
+                            {% set visibleIfValues = visibleIf.values is iterable ? visibleIf.values : [visibleIf.values] %}
+                        {% elseif visibleIf.value is defined %}
+                            {% set visibleIfValues = [visibleIf.value] %}
+                        {% elseif visibleIf[1] is defined %}
+                            {% set rawVisibleIfValues = visibleIf[1] %}
+                            {% set visibleIfValues = rawVisibleIfValues is iterable ? rawVisibleIfValues : [rawVisibleIfValues] %}
+                        {% endif %}
+                    {% endif %}
+                    <div
+                        class="mb-3"
+                        {% if visibleIfField and visibleIfValues is not empty %}
+                            data-visible-if-field="{{ visibleIfField }}"
+                            data-visible-if-values="{{ visibleIfValues|json_encode|e('html_attr') }}"
+                        {% endif %}
+                    >
+                        {% set fieldLabel = field.label|default(fieldName) %}
+                        {% if plainReadOnlyView %}
+                            {% set rawDisplayValue = values[fieldName]|default('') %}
+                            {% set displayValue = rawDisplayValue %}
+                            {% if fieldType in ['select', 'relation'] %}
+                                {% set optionLabels = field.options|default({})|merge(field.selected_options|default({})) %}
+                                {% if rawDisplayValue is iterable %}
+                                    {% set displayParts = [] %}
+                                    {% for item in rawDisplayValue %}
+                                        {% set optionKey = item ~ '' %}
+                                        {% set displayParts = displayParts|merge([optionLabels[optionKey]|default(optionKey)]) %}
+                                    {% endfor %}
+                                    {% set displayValue = displayParts|join(', ') %}
+                                {% else %}
+                                    {% set optionKey = rawDisplayValue ~ '' %}
+                                    {% set displayValue = optionLabels[optionKey]|default(rawDisplayValue) %}
+                                {% endif %}
+                            {% elseif fieldType in ['checkbox', 'boolean', 'boolean_select'] %}
+                                {% set displayValue = (rawDisplayValue is same as(true) or rawDisplayValue == 1 or rawDisplayValue == '1') ? 'Tak' : 'Nie' %}
+                            {% elseif fieldType in ['date', 'datetime'] %}
+                                {% set dateDisplayValue = rawDisplayValue|trim %}
+                                {% if dateDisplayValue|lower == 'null' or dateDisplayValue matches '/^0{4}-0{2}-0{2}(?:\s+0{2}:0{2}(?::0{2})?)?$/' %}
+                                    {% set displayValue = '' %}
+                                {% endif %}
+                            {% endif %}
+                            {% set relatedDisplayType = field.display_type|default('text')|lower %}
+                            {% set shouldShowLargeImage = (fieldType == 'image') or (fieldType in ['related_field', 'relation_field'] and relatedDisplayType == 'image') %}
+                            <div class="module-text-preview-row mb-3">
+                                {% if shouldShowLargeImage %}
+                                    <div class="fw-semibold text-muted mb-2">{{ fieldLabel }}:</div>
+                                    {% if rawDisplayValue %}
+                                        <a href="{{ rawDisplayValue }}" target="_blank" rel="noopener noreferrer" class="d-block w-100">
+                                            <img
+                                                class="img-fluid rounded border bg-light d-block"
+                                                src="{{ rawDisplayValue }}"
+                                                alt="Podgląd {{ fieldLabel }}"
+                                                style="width: 100%; max-height: 75vh; object-fit: contain;"
+                                            >
+                                        </a>
+                                    {% else %}
+                                        <div class="text-muted">—</div>
+                                    {% endif %}
+                                {% elseif fieldType == 'file' and rawDisplayValue %}
+                                    <span class="fw-semibold text-muted">{{ fieldLabel }}:</span>
+                                    <a href="{{ rawDisplayValue }}" target="_blank" rel="noopener noreferrer">Pobierz aktualny plik</a>
+                                {% elseif fieldType in ['textarea', 'richtext', 'wysiwyg', 'json', 'json_pretty'] or relatedDisplayType in ['textarea', 'richtext', 'wysiwyg', 'json', 'json_pretty'] %}
+                                    <div class="fw-semibold text-muted mb-1">{{ fieldLabel }}:</div>
+                                    <div class="text-body" style="white-space: pre-wrap;">{{ displayValue ?: '—' }}</div>
+                                {% else %}
+                                    <span class="fw-semibold text-muted">{{ fieldLabel }}:</span>
+                                    <span class="text-body">{{ displayValue ?: '—' }}</span>
+                                {% endif %}
+                            </div>
+                        {% else %}
+                            <label class="form-label">{{ fieldLabel }}</label>
+                        {% if fieldType == 'wysiwyg' %}
+                            {% set hasWysiwyg = true %}
+                            <textarea class="form-control wysiwyg-editor" name="{{ fieldName }}" id="field-{{ fieldName }}" rows="6" data-wysiwyg="true"{% if isFieldReadOnly %} readonly data-wysiwyg-readonly="true"{% endif %}>{{ values[fieldName]|default('') }}</textarea>
+                        {% elseif fieldType in ['textarea', 'richtext'] %}
+                            <textarea class="form-control" name="{{ fieldName }}" rows="4"{% if isFieldReadOnly %} readonly{% endif %}>{{ values[fieldName]|default('') }}</textarea>
+                        {% elseif fieldType == 'json' %}
+                            <textarea
+                                class="form-control"
+                                name="{{ fieldName }}"
+                                rows="{{ field.rows|default(8) }}"
+                                data-json-pretty-field="true"
+                                data-json-readonly="{{ isFieldReadOnly ? '1' : '0' }}"
+                                {% if isFieldReadOnly %} readonly{% endif %}
+                            >{{ values[fieldName]|default('') }}</textarea>
+                            <div class="form-text">Pole obsługuje JSON. Dane są automatycznie formatowane dla lepszej czytelności.</div>
+                        {% elseif fieldType == 'json_pretty' %}
+                            <pre
+                                class="form-control mb-0 bg-light p-3"
+                                style="min-height: {{ (field.rows|default(8) * 1.5)|number_format(0, '.', '') }}rem; white-space: pre-wrap;"
+                                data-json-pretty-display="true"
+                            >{{ values[fieldName]|default('') }}</pre>
+                        {% elseif fieldType == 'info' %}
+                            {% set displayTextProvider = field.display_text_provider|default('') %}
+                            {% set displayText = displayTextProvider ? configured_field_text(displayTextProvider, field, values) : '' %}
+                            <div class="alert alert-info mb-0">
+                                {% if field.text|default('') %}
+                                    <div class="{{ displayText ? 'mb-2' : '' }}">{{ field.text|nl2br }}</div>
+                                {% endif %}
+                                {% if displayText %}
+                                    <label class="form-label fw-semibold" for="field-{{ fieldName }}">{{ field.display_text_label|default(fieldLabel) }}</label>
+                                    <textarea
+                                        class="form-control{% if field.display_text_monospace|default(false) %} font-monospace{% endif %}"
+                                        id="field-{{ fieldName }}"
+                                        rows="{{ field.display_text_rows|default(2) }}"
+                                        readonly
+                                        {% if field.display_text_select_on_click|default(false) %}onclick="this.select();"{% endif %}
+                                    >{{ displayText }}</textarea>
+                                    {% if field.display_text_help|default('') %}
+                                        <div class="form-text">{{ field.display_text_help }}</div>
+                                    {% endif %}
+                                {% endif %}
+                            </div>
+                        {% elseif fieldType in ['checkbox', 'boolean'] %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="{{ fieldName }}" id="field-{{ fieldName }}" value="1" {% if values[fieldName]|default(false) %}checked{% endif %}{% if isFieldReadOnly %} disabled{% endif %}>
+                                <label class="form-check-label" for="field-{{ fieldName }}">Tak</label>
+                            </div>
+                        {% elseif fieldType == 'boolean_select' %}
+                            {% set rawValue = values[fieldName] is defined ? values[fieldName] : null %}
+                            {% set normalizedValue = (rawValue is same as(true) or rawValue == 1 or rawValue == '1') ? '1' : '0' %}
+                            <select class="form-select" name="{{ fieldName }}" id="field-{{ fieldName }}"{% if isFieldReadOnly %} disabled{% endif %}>
+                                <option value="1" {% if normalizedValue == '1' %}selected{% endif %}>Tak</option>
+                                <option value="0" {% if normalizedValue == '0' %}selected{% endif %}>Nie</option>
+                            </select>
+                        {% elseif fieldType == 'date' %}
+                            {% set rawDateValue = values[fieldName]|default('')|trim %}
+                            {% set normalizedDateValue = rawDateValue %}
+                            {% if rawDateValue|lower == 'null' or rawDateValue matches '/^0{4}-0{2}-0{2}$/' %}
+                                {% set normalizedDateValue = '' %}
+                            {% endif %}
+                            <div class="input-group">
+                                <input class="form-control" type="date" name="{{ fieldName }}" id="field-{{ fieldName }}" value="{{ normalizedDateValue }}"{% if isFieldReadOnly %} readonly{% endif %}>
+                                {% if not isFieldReadOnly %}
+                                    <button
+                                        class="btn btn-outline-secondary"
+                                        type="button"
+                                        data-set-current-date="true"
+                                        data-target-id="field-{{ fieldName }}"
+                                    >
+                                        Dzisiaj
+                                    </button>
+                                {% endif %}
+                            </div>
+                        {% elseif fieldType == 'datetime' %}
+                            {% set hasDateTime = true %}
+                            {% set rawDateTimeValue = values[fieldName]|default('')|trim %}
+                            {% set normalizedDateTimeValue = rawDateTimeValue %}
+                            {% if rawDateTimeValue|lower == 'null' or rawDateTimeValue matches '/^0{4}-0{2}-0{2}(?:\\s+0{2}:0{2}(?::0{2})?)?$/' %}
+                                {% set normalizedDateTimeValue = '' %}
+                            {% endif %}
+                            <input
+                                class="form-control"
+                                type="text"
+                                name="{{ fieldName }}"
+                                id="field-{{ fieldName }}"
+                                value="{{ normalizedDateTimeValue }}"
+                                data-datetime-picker="true"
+                                placeholder="YYYY-MM-DD HH:MM:SS"
+                                autocomplete="off"
+                                {% if isFieldReadOnly %}readonly{% endif %}
+                            >
+                            {% if not isFieldReadOnly %}
+                                <button
+                                    class="btn btn-outline-secondary mt-2"
+                                    type="button"
+                                    data-set-current-datetime="true"
+                                    data-target-id="field-{{ fieldName }}"
+                                >
+                                    Ustaw teraz
+                                </button>
+                            {% endif %}
+                        {% elseif fieldType == 'select' %}
+                            {% set isMultiple = field.multiple|default(false) %}
+                            {% set renderMode = field.render|default('select') %}
+                            {% set selectedValue = values[fieldName]|default(isMultiple ? [] : '') %}
+                            {% if isMultiple and selectedValue is not iterable %}
+                                {% set selectedValue = [] %}
+                            {% endif %}
+
+                            {% if renderMode == 'checkboxes' and isMultiple %}
+                                <div class="d-flex flex-column gap-2">
+                                    {% for optionValue, optionLabel in field.options|default({}) %}
+                                        {% set checkboxId = 'field-' ~ fieldName ~ '-' ~ loop.index %}
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" name="{{ fieldName }}[]" id="{{ checkboxId }}" value="{{ optionValue }}" {% if optionValue in selectedValue %}checked{% endif %}{% if isFieldReadOnly %} disabled{% endif %}>
+                                            <label class="form-check-label" for="{{ checkboxId }}">{{ optionLabel }}</label>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            {% else %}
+                                <select
+                                    class="form-select"
+                                    name="{{ fieldName }}{% if isMultiple %}[]{% endif %}"
+                                    id="field-{{ fieldName }}"
+                                    {% if isMultiple %} multiple{% endif %}
+                                    {% if isFieldReadOnly %} disabled{% endif %}
+                                >
+                                    {% if not isMultiple and field.placeholder is defined and field.placeholder %}
+                                        <option value="" disabled{% if selectedValue == '' %} selected{% endif %}>{{ field.placeholder }}</option>
+                                    {% endif %}
+                                    {% if field.option_groups|default({}) is not empty %}
+                                        {% for groupLabel, groupOptions in field.option_groups|default({}) %}
+                                            <optgroup label="{{ groupLabel }}">
+                                                {% for optionValue, optionLabel in groupOptions %}
+                                                    <option value="{{ optionValue }}" {% if isMultiple ? (optionValue in selectedValue) : (optionValue == selectedValue) %}selected{% endif %}>
+                                                        {{ optionLabel }}
+                                                    </option>
+                                                {% endfor %}
+                                            </optgroup>
+                                        {% endfor %}
+                                    {% else %}
+                                        {% for optionValue, optionLabel in field.options|default({}) %}
+                                            <option value="{{ optionValue }}" {% if isMultiple ? (optionValue in selectedValue) : (optionValue == selectedValue) %}selected{% endif %}>
+                                                {{ optionLabel }}
+                                            </option>
+                                        {% endfor %}
+                                    {% endif %}
+                                </select>
+                            {% endif %}
+                        {% elseif fieldType == 'relation' %}
+                            {% set isMultiple = field.multiple|default(false) %}
+                            {% set renderMode = field.render|default('select') %}
+                            {% set selectedValue = values[fieldName]|default(isMultiple ? [] : '') %}
+                            {% set optionMeta = field.option_meta|default({}) %}
+                            {% set isRemote = field.remote|default(false) %}
+                            {% if isMultiple and selectedValue is not iterable %}
+                                {% set selectedValue = [] %}
+                            {% endif %}
+                            {% if isRemote %}
+                                {% set selectedOptions = field.selected_options|default({}) %}
+                                {% if selectedOptions is empty and selectedValue %}
+                                    {% if selectedValue is iterable %}
+                                        {% for fallbackValue in selectedValue %}
+                                            {% if fallbackValue %}
+                                                {% set selectedOptions = selectedOptions|merge({ (fallbackValue): fallbackValue }) %}
+                                            {% endif %}
+                                        {% endfor %}
+                                    {% else %}
+                                        {% set selectedOptions = { (selectedValue): selectedValue } %}
+                                    {% endif %}
+                                {% endif %}
+                                {% if isFieldReadOnly %}
+                                    {% set displayValue = '' %}
+                                        {% if selectedOptions is not empty %}
+                                            {% set displayValue = selectedOptions|join(', ') %}
+                                    {% elseif selectedValue is iterable %}
+                                        {% set displayValue = selectedValue|join(', ') %}
+                                    {% else %}
+                                        {% set displayValue = selectedValue %}
+                                    {% endif %}
+                                    <input class="form-control" type="text" value="{{ displayValue }}" readonly>
+                                {% else %}
+                                    {% set searchPlaceholder = field.search_placeholder|default(field.placeholder|default('Szukaj')) %}
+                                    <div
+                                        class="relation-search"
+                                        data-relation-search="true"
+                                        data-field-name="{{ fieldName }}"
+                                        data-search-url="/cms/modules/{{ moduleKey }}/relation-search/{{ fieldName }}"
+                                        data-multiple="{{ isMultiple ? '1' : '0' }}"
+                                        data-search-filters="{{ field.search_filters|default({})|json_encode|e('html_attr') }}"
+                                    >
+                                        <input
+                                            type="text"
+                                            class="form-control relation-search-input"
+                                            placeholder="{{ searchPlaceholder }}"
+                                            autocomplete="off"
+                                        >
+                                        <div class="relation-search-selected mt-2">
+                                            {% for optionValue, optionLabel in selectedOptions %}
+                                                <span class="badge bg-primary relation-search-chip" data-value="{{ optionValue }}">
+                                                    {{ optionLabel }}
+                                                    <button type="button" class="btn-close btn-close-white relation-remove" aria-label="Usuń"></button>
+                                                </span>
+                                                <input type="hidden" name="{{ fieldName }}{% if isMultiple %}[]{% endif %}" value="{{ optionValue }}">
+                                            {% endfor %}
+                                        </div>
+                                        <div class="list-group relation-search-results"></div>
+                                    </div>
+                                {% endif %}
+                            {% elseif renderMode == 'checkboxes' and isMultiple %}
+                                <div class="d-flex flex-column gap-2">
+                                    {% for optionValue, optionLabel in field.options|default({}) %}
+                                        {% set checkboxId = 'field-' ~ fieldName ~ '-' ~ loop.index %}
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" name="{{ fieldName }}[]" id="{{ checkboxId }}" value="{{ optionValue }}" {% if optionValue in selectedValue %}checked{% endif %}{% if isFieldReadOnly %} disabled{% endif %}>
+                                            <label class="form-check-label" for="{{ checkboxId }}">{{ optionLabel }}</label>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            {% else %}
+                                <select
+                                    class="form-select"
+                                    name="{{ fieldName }}{% if isMultiple %}[]{% endif %}"
+                                    id="field-{{ fieldName }}"
+                                    {% if isMultiple %} multiple{% endif %}
+                                    {% if isFieldReadOnly %} disabled{% endif %}
+                                    {% if field.depends_on|default('') %}
+                                        data-depends-on="{{ field.depends_on }}"
+                                        data-no-dependency-label="{{ field.depends_no_dependency_label|default('Najpierw wybierz wartość nadrzędną') }}"
+                                        data-empty-label="{{ field.depends_empty_label|default('Brak opcji dla wybranego elementu') }}"
+                                        data-placeholder="{{ field.placeholder|default('') }}"
+                                    {% endif %}
+                                >
+                                    {% if not isMultiple %}
+                                        {% if field.placeholder is defined and field.placeholder %}
+                                            <option value="" disabled{% if selectedValue == '' %} selected{% endif %}>{{ field.placeholder }}</option>
+                                        {% else %}
+                                            <option value="" {% if selectedValue == '' %}selected{% endif %}></option>
+                                        {% endif %}
+                                    {% endif %}
+                                    {% if field.option_groups|default({}) is not empty %}
+                                        {% for groupLabel, groupOptions in field.option_groups|default({}) %}
+                                            <optgroup label="{{ groupLabel }}">
+                                                {% for optionValue, optionLabel in groupOptions %}
+                                                    {% set meta = optionMeta[optionValue]|default({}) %}
+                                                    <option
+                                                        value="{{ optionValue }}"
+                                                        {% if isMultiple ? (optionValue in selectedValue) : (optionValue == selectedValue) %}selected{% endif %}
+                                                        {% if meta.depends_value is defined %} data-depends-value="{{ meta.depends_value }}"{% endif %}
+                                                        {% if meta.disabled|default(false) %} disabled class="text-muted"{% endif %}
+                                                    >
+                                                        {{ optionLabel }}
+                                                    </option>
+                                                {% endfor %}
+                                            </optgroup>
+                                        {% endfor %}
+                                    {% else %}
+                                        {% for optionValue, optionLabel in field.options|default({}) %}
+                                            {% set meta = optionMeta[optionValue]|default({}) %}
+                                            <option
+                                                value="{{ optionValue }}"
+                                                {% if isMultiple ? (optionValue in selectedValue) : (optionValue == selectedValue) %}selected{% endif %}
+                                                {% if meta.depends_value is defined %} data-depends-value="{{ meta.depends_value }}"{% endif %}
+                                                {% if meta.disabled|default(false) %} disabled class="text-muted"{% endif %}
+                                            >
+                                                {{ optionLabel }}
+                                            </option>
+                                        {% endfor %}
+                                    {% endif %}
+                                </select>
+                            {% endif %}
+
+                        {% elseif fieldType == 'link_list' %}
+                            {% set selectedLinks = values[fieldName]|default([]) %}
+                            {% if selectedLinks is not iterable %}
+                                {% set selectedLinks = [] %}
+                            {% endif %}
+                            {% set relationOptions = field.options|default({}) %}
+                            {% if isFieldReadOnly %}
+                                {% if selectedLinks is empty %}
+                                    <input class="form-control" type="text" value="" readonly>
+                                {% else %}
+                                    <ul class="list-group">
+                                        {% for linkItem in selectedLinks %}
+                                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                                <span>{{ linkItem.nazwa|default('') }}</span>
+                                                <span class="text-muted">{{ relationOptions[linkItem.file_id|default('')]|default(linkItem.file_id|default('')) }}</span>
+                                            </li>
+                                        {% endfor %}
+                                    </ul>
+                                {% endif %}
+                            {% else %}
+                                <div class="link-list-editor" data-link-list-editor="true">
+                                    <input type="hidden" name="{{ fieldName }}" value="" data-link-list-input="true">
+                                    <div class="d-flex justify-content-end mb-2">
+                                        <button type="button" class="btn btn-outline-primary btn-sm" data-link-list-add="true">Dodaj</button>
+                                    </div>
+                                    <div class="d-flex flex-column gap-2" data-link-list-items="true">
+                                        {% for linkItem in selectedLinks %}
+                                            <div class="border rounded p-3" data-link-list-item="true">
+                                                <div class="row g-2 align-items-end">
+                                                    <div class="col-md-5">
+                                                        <label class="form-label">Nazwa</label>
+                                                        <input type="text" class="form-control" data-link-list-name="true" value="{{ linkItem.nazwa|default('') }}">
+                                                    </div>
+                                                    <div class="col-md-5">
+                                                        <label class="form-label">Plik</label>
+                                                        <select class="form-select" data-link-list-file="true">
+                                                            <option value="">Wybierz plik</option>
+                                                            {% for optionValue, optionLabel in relationOptions %}
+                                                                <option value="{{ optionValue }}" {% if optionValue == linkItem.file_id|default('') %}selected{% endif %}>{{ optionLabel }}</option>
+                                                            {% endfor %}
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-md-2 d-flex gap-2 justify-content-md-end">
+                                                        <button type="button" class="btn btn-outline-secondary btn-sm" data-link-list-up="true" title="Przesuń w górę">↑</button>
+                                                        <button type="button" class="btn btn-outline-secondary btn-sm" data-link-list-down="true" title="Przesuń w dół">↓</button>
+                                                        <button type="button" class="btn btn-outline-danger btn-sm" data-link-list-remove="true">Usuń</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                    <template data-link-list-template="true">
+                                        <div class="border rounded p-3" data-link-list-item="true">
+                                            <div class="row g-2 align-items-end">
+                                                <div class="col-md-5">
+                                                    <label class="form-label">Nazwa</label>
+                                                    <input type="text" class="form-control" data-link-list-name="true" value="">
+                                                </div>
+                                                <div class="col-md-5">
+                                                    <label class="form-label">Plik</label>
+                                                    <select class="form-select" data-link-list-file="true">
+                                                        <option value="">Wybierz plik</option>
+                                                        {% for optionValue, optionLabel in relationOptions %}
+                                                            <option value="{{ optionValue }}">{{ optionLabel }}</option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-2 d-flex gap-2 justify-content-md-end">
+                                                    <button type="button" class="btn btn-outline-secondary btn-sm" data-link-list-up="true" title="Przesuń w górę">↑</button>
+                                                    <button type="button" class="btn btn-outline-secondary btn-sm" data-link-list-down="true" title="Przesuń w dół">↓</button>
+                                                    <button type="button" class="btn btn-outline-danger btn-sm" data-link-list-remove="true">Usuń</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            {% endif %}
+                        {% elseif fieldType in ['related_field', 'relation_field'] %}
+                            {% set relatedDisplayType = field.display_type|default('text')|lower %}
+                            {% set relatedValue = values[fieldName]|default('') %}
+                            {% set isRelatedFieldEditable = field.editable|default(false) and not isFieldReadOnly %}
+                            {% if isRelatedFieldEditable and relatedDisplayType == 'select' %}
+                                <select class="form-select" name="{{ fieldName }}" id="field-{{ fieldName }}">
+                                    {% if field.placeholder is defined and field.placeholder %}
+                                        <option value=""{% if relatedValue == '' %} selected{% endif %}>{{ field.placeholder }}</option>
+                                    {% endif %}
+                                    {% for optionValue, optionLabel in field.options|default({}) %}
+                                        <option value="{{ optionValue }}" {% if optionValue == relatedValue %}selected{% endif %}>{{ optionLabel }}</option>
+                                    {% endfor %}
+                                </select>
+                                <div class="form-text">Zmiana zostanie zapisana w powiązanym zgłoszeniu.</div>
+                            {% elseif isRelatedFieldEditable and relatedDisplayType in ['text', 'email', 'url', 'number'] %}
+                                <input class="form-control" type="{{ relatedDisplayType == 'number' ? 'number' : (relatedDisplayType == 'email' ? 'email' : (relatedDisplayType == 'url' ? 'url' : 'text')) }}" name="{{ fieldName }}" id="field-{{ fieldName }}" value="{{ relatedValue }}">
+                                <div class="form-text">Zmiana zostanie zapisana w powiązanym zgłoszeniu.</div>
+                            {% elseif isRelatedFieldEditable and relatedDisplayType in ['textarea', 'richtext', 'wysiwyg', 'json', 'json_pretty'] %}
+                                <textarea class="form-control" name="{{ fieldName }}" id="field-{{ fieldName }}" rows="{{ field.rows|default(4) }}">{{ relatedValue }}</textarea>
+                                <div class="form-text">Zmiana zostanie zapisana w powiązanym zgłoszeniu.</div>
+                            {% elseif relatedDisplayType == 'image' %}
+                                {% if relatedValue %}
+                                    <div>
+                                        <a href="{{ relatedValue }}" target="_blank" rel="noopener noreferrer" class="d-inline-block">
+                                            <img class="img-thumbnail" src="{{ relatedValue }}" alt="Podgląd {{ field.label|default(fieldName) }}" style="max-height: 120px;">
+                                        </a>
+                                    </div>
+                                {% else %}
+                                    <input class="form-control" type="text" value="" readonly>
+                                {% endif %}
+                            {% elseif relatedDisplayType in ['textarea', 'richtext', 'wysiwyg', 'json', 'json_pretty'] %}
+                                <pre class="form-control mb-0 bg-light p-3" style="min-height: {{ (field.rows|default(4) * 1.5)|number_format(0, '.', '') }}rem; white-space: pre-wrap;">{{ relatedValue }}</pre>
+                            {% else %}
+                                <input class="form-control" type="text" value="{{ relatedValue }}" readonly>
+                            {% endif %}
+                        {% elseif fieldType == 'structured_list' %}
+                            {% set selectedItems = values[fieldName]|default([]) %}
+                            {% if selectedItems is not iterable %}
+                                {% set selectedItems = [] %}
+                            {% endif %}
+                            {% set structuredFields = field.fields|default([]) %}
+                            {% if isFieldReadOnly %}
+                                {% if selectedItems is empty %}
+                                    <input class="form-control" type="text" value="" readonly>
+                                {% else %}
+                                    <div class="d-flex flex-column gap-2">
+                                        {% for item in selectedItems %}
+                                            <div class="border rounded p-3">
+                                                <div class="row g-2">
+                                                    {% for nestedField in structuredFields %}
+                                                        {% set nestedName = nestedField.name|default('') %}
+                                                        {% if nestedName %}
+                                                            {% set nestedType = nestedField.type|default('text')|lower %}
+                                                            <div class="col-md-6">
+                                                                <div class="small text-muted">{{ nestedField.label|default(nestedName) }}</div>
+                                                                {% if nestedType == 'image' and item[nestedName]|default('') is not empty %}
+                                                                    <a href="{{ item[nestedName] }}" target="_blank" rel="noopener noreferrer" class="d-inline-block">
+                                                                        <img class="img-thumbnail" src="{{ item[nestedName] }}" alt="Podgląd {{ nestedField.label|default(nestedName) }}" style="max-height: 80px;">
+                                                                    </a>
+                                                                {% else %}
+                                                                    <div>{{ item[nestedName]|default('') }}</div>
+                                                                {% endif %}
+                                                            </div>
+                                                        {% endif %}
+                                                    {% endfor %}
+                                                </div>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            {% else %}
+                                <div class="structured-list-editor" data-structured-list-editor="true">
+                                    <input type="hidden" name="{{ fieldName }}" value="" data-structured-list-input="true">
+                                    <div class="d-flex justify-content-end mb-2">
+                                        <button type="button" class="btn btn-outline-primary btn-sm" data-structured-list-add="true">Dodaj</button>
+                                    </div>
+                                    <div class="d-flex flex-column gap-2" data-structured-list-items="true">
+                                        {% for item in selectedItems %}
+                                            <div class="border rounded p-3" data-structured-list-item="true">
+                                                <div class="row g-2 align-items-end">
+                                                    {% for nestedField in structuredFields %}
+                                                        {% set nestedName = nestedField.name|default('') %}
+                                                        {% if nestedName %}
+                                                            {% set nestedType = nestedField.type|default('text')|lower %}
+                                                            <div class="col-md-5">
+                                                                <label class="form-label">{{ nestedField.label|default(nestedName) }}</label>
+                                                                {% if nestedType == 'image' %}
+                                                                    <input type="hidden" data-structured-list-value="{{ nestedName }}" value="{{ item[nestedName]|default('') }}">
+                                                                    <input class="form-control" type="file" accept="image/*" data-structured-list-image-input="true" data-structured-list-image-name="{{ nestedName }}">
+                                                                    <div class="small text-muted mt-1" data-structured-list-image-status="true">Wybierz zdjęcie do wgrania.</div>
+                                                                    <div class="mt-2{% if item[nestedName]|default('') is empty %} d-none{% endif %}" data-structured-list-image-preview-wrapper="true">
+                                                                        <a href="{{ item[nestedName]|default('') }}" target="_blank" rel="noopener noreferrer" data-structured-list-image-link="true">
+                                                                            <img class="img-thumbnail" src="{{ item[nestedName]|default('') }}" alt="Podgląd {{ nestedField.label|default(nestedName) }}" style="max-height: 80px;" data-structured-list-image-preview="true">
+                                                                        </a>
+                                                                    </div>
+                                                                {% else %}
+                                                                    <input
+                                                                        type="{{ nestedField.input_type|default('text') }}"
+                                                                        class="form-control"
+                                                                        data-structured-list-value="{{ nestedName }}"
+                                                                        value="{{ item[nestedName]|default('') }}"
+                                                                    >
+                                                                {% endif %}
+                                                            </div>
+                                                        {% endif %}
+                                                    {% endfor %}
+                                                    <div class="col-md-2 d-flex gap-2 justify-content-md-end">
+                                                        <button type="button" class="btn btn-outline-secondary btn-sm" data-structured-list-up="true" title="Przesuń w górę">↑</button>
+                                                        <button type="button" class="btn btn-outline-secondary btn-sm" data-structured-list-down="true" title="Przesuń w dół">↓</button>
+                                                        <button type="button" class="btn btn-outline-danger btn-sm" data-structured-list-remove="true">Usuń</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                    <template data-structured-list-template="true">
+                                        <div class="border rounded p-3" data-structured-list-item="true">
+                                            <div class="row g-2 align-items-end">
+                                                {% for nestedField in structuredFields %}
+                                                    {% set nestedName = nestedField.name|default('') %}
+                                                    {% if nestedName %}
+                                                    {% set nestedType = nestedField.type|default('text')|lower %}
+                                                        <div class="col-md-5">
+                                                            <label class="form-label">{{ nestedField.label|default(nestedName) }}</label>
+                                                            {% if nestedType == 'image' %}
+                                                                <input type="hidden" data-structured-list-value="{{ nestedName }}" value="">
+                                                                <input class="form-control" type="file" accept="image/*" data-structured-list-image-input="true" data-structured-list-image-name="{{ nestedName }}">
+                                                                <div class="small text-muted mt-1" data-structured-list-image-status="true">Wybierz zdjęcie do wgrania.</div>
+                                                                <div class="mt-2 d-none" data-structured-list-image-preview-wrapper="true">
+                                                                    <a href="" target="_blank" rel="noopener noreferrer" data-structured-list-image-link="true">
+                                                                        <img class="img-thumbnail" src="" alt="Podgląd {{ nestedField.label|default(nestedName) }}" style="max-height: 80px;" data-structured-list-image-preview="true">
+                                                                    </a>
+                                                                </div>
+                                                            {% else %}
+                                                                <input
+                                                                    type="{{ nestedField.input_type|default('text') }}"
+                                                                    class="form-control"
+                                                                    data-structured-list-value="{{ nestedName }}"
+                                                                    value=""
+                                                                >
+                                                            {% endif %}
+                                                        </div>
+                                                    {% endif %}
+                                                {% endfor %}
+                                                <div class="col-md-2 d-flex gap-2 justify-content-md-end">
+                                                    <button type="button" class="btn btn-outline-secondary btn-sm" data-structured-list-up="true" title="Przesuń w górę">↑</button>
+                                                    <button type="button" class="btn btn-outline-secondary btn-sm" data-structured-list-down="true" title="Przesuń w dół">↓</button>
+                                                    <button type="button" class="btn btn-outline-danger btn-sm" data-structured-list-remove="true">Usuń</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            {% endif %}
+                        {% elseif fieldType == 'image' %}
+                            {% if not isFieldReadOnly %}
+                                <input class="form-control" type="file" name="{{ fieldName }}" accept="image/*">
+                            {% endif %}
+                            {% if values[fieldName]|default('') %}
+                                <div class="mt-2">
+                                    <a href="{{ values[fieldName] }}" target="_blank" rel="noopener noreferrer" class="d-inline-block">
+                                        <img class="img-thumbnail" src="{{ values[fieldName] }}" alt="Podgląd {{ field.label|default(fieldName) }}" style="max-height: 120px;">
+                                    </a>
+                                </div>
+                                {% if not isFieldReadOnly %}
+                                    <div class="form-check mt-2">
+                                        <input class="form-check-input" type="checkbox" name="{{ fieldName }}_remove" id="field-{{ fieldName }}-remove" value="1">
+                                        <label class="form-check-label" for="field-{{ fieldName }}-remove">Usuń zdjęcie</label>
+                                    </div>
+                                {% endif %}
+                            {% endif %}
+                        {% elseif fieldType == 'file' %}
+                            {% set normalizedTypes = [] %}
+                            {% if field.file_types is defined %}
+                                {% set rawTypes = field.file_types %}
+                                {% if rawTypes is not iterable %}
+                                    {% set rawTypes = rawTypes|split(',') %}
+                                {% endif %}
+                                {% set typeMap = { 'pdf': ['.pdf'], 'excel': ['.xls', '.xlsx', '.csv'], 'word': ['.doc', '.docx'] } %}
+                                {% for rawType in rawTypes %}
+                                    {% set key = rawType|lower|trim|replace({'.': ''}) %}
+                                    {% if typeMap[key] is defined %}
+                                        {% set normalizedTypes = normalizedTypes|merge(typeMap[key]) %}
+                                    {% elseif key %}
+                                        {% set normalizedTypes = normalizedTypes|merge(['.' ~ key]) %}
+                                    {% endif %}
+                                {% endfor %}
+                            {% endif %}
+                            {% set acceptTypes = normalizedTypes|join(',') %}
+                            {% if not isFieldReadOnly %}
+                                <input class="form-control" type="file" name="{{ fieldName }}"{% if acceptTypes %} accept="{{ acceptTypes }}"{% endif %}>
+                            {% endif %}
+                            {% if values[fieldName]|default('') %}
+                                <div class="mt-2">
+                                    <a href="{{ values[fieldName] }}" target="_blank" rel="noopener noreferrer">Pobierz aktualny plik</a>
+                                </div>
+                                {% if not isFieldReadOnly %}
+                                    <div class="form-check mt-2">
+                                        <input class="form-check-input" type="checkbox" name="{{ fieldName }}_remove" id="field-{{ fieldName }}-remove" value="1">
+                                        <label class="form-check-label" for="field-{{ fieldName }}-remove">Usuń plik</label>
+                                    </div>
+                                {% endif %}
+                            {% endif %}
+                        {% elseif fieldType == 'video' %}
+                            <div class="border rounded p-3" data-video-upload="true" data-field-name="{{ fieldName }}" data-upload-url="/cms/modules/{{ moduleKey|url_encode }}/chunk-upload/{{ fieldName|url_encode }}" data-max-size-mb="{{ field.max_size_mb|default(300) }}">
+                                <input class="form-control mb-2" type="file" accept="video/*" data-video-input="true"{% if isFieldReadOnly %} disabled{% endif %}>
+                                <input type="hidden" name="{{ fieldName }}" value="{{ values[fieldName]|default('') }}" data-video-hidden-input="true">
+                                <div class="progress mb-2 d-none" data-video-progress-wrapper="true" style="height: 20px;">
+                                    <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="width:0%" data-video-progress-bar="true">0%</div>
+                                </div>
+                                {% if values[fieldName]|default('') %}
+                                    <div class="mb-2" data-video-preview-wrapper="true">
+                                        <video controls preload="metadata" style="max-width:100%;" data-video-preview="true" src="{{ values[fieldName] }}"></video>
+                                    </div>
+                                {% else %}
+                                    <div class="mb-2 d-none" data-video-preview-wrapper="true">
+                                        <video controls preload="metadata" style="max-width:100%;" data-video-preview="true"></video>
+                                    </div>
+                                {% endif %}
+                                {% if not isFieldReadOnly %}
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="checkbox" name="{{ fieldName }}_remove" id="field-{{ fieldName }}-remove" value="1" data-video-remove-checkbox="true">
+                                        <label class="form-check-label" for="field-{{ fieldName }}-remove">Usuń wideo</label>
+                                    </div>
+                                {% endif %}
+                                <div class="form-text" data-video-status="true">
+                                    {% if values[fieldName]|default('') %}
+                                        <a href="{{ values[fieldName] }}" target="_blank" rel="noopener noreferrer">Pobierz aktualny film</a>
+                                    {% else %}
+                                        Maksymalny rozmiar: {{ field.max_size_mb|default(300) }} MB.
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% elseif fieldType == 'link' %}
+                            <input class="form-control" type="url" name="{{ fieldName }}" value="{{ values[fieldName]|default('') }}" placeholder="https://"{% if isFieldReadOnly %} readonly{% endif %}>
+                        {% elseif fieldType in ['number', 'integer', 'float', 'decimal'] %}
+                            <input
+                                class="form-control"
+                                type="number"
+                                name="{{ fieldName }}"
+                                value="{{ values[fieldName]|default('') }}"
+                                {% if field.step|default('') %}step="{{ field.step }}"{% elseif fieldType in ['float', 'decimal'] %}step="any"{% else %}step="1"{% endif %}
+                                {% if field.min is defined %}min="{{ field.min }}"{% endif %}
+                                {% if field.max is defined %}max="{{ field.max }}"{% endif %}
+                                inputmode="{{ fieldType in ['float', 'decimal'] ? 'decimal' : 'numeric' }}"
+                                {% if isFieldReadOnly %} readonly{% endif %}
+                            >
+                        {% else %}
+                            <input
+                                class="form-control"
+                                type="text"
+                                name="{{ fieldName }}"
+                                value="{{ values[fieldName]|default('') }}"
+                                {% if field.numeric_only|default(false) %}
+                                    inputmode="numeric"
+                                    pattern="\d*"
+                                {% endif %}
+                                {% if isFieldReadOnly %} readonly{% endif %}
+                            >
+                        {% endif %}
+                        {% endif %}
+                    </div>
+                {% endif %}
+            {% endfor %}
+            {% if hasHeader %}
+                </div>
+            {% endif %}
+            </div>
+        {% endfor %}
+        {% if not readOnlyMode %}
+            {% if showWinnerEmailOption|default(false) %}
+                {% include 'backend/_winner_email_option.html.twig' %}
+            {% endif %}
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <button class="btn btn-primary" type="submit">{{ submitLabel }}</button>
+                {% if moduleKey == 'system_settings' %}
+                    <button
+                        class="btn btn-outline-secondary"
+                        type="button"
+                        data-test-ftp-settings
+                        data-test-ftp-url="/cms/modules/system_settings/test-ftp"
+                    >
+                        Sprawdź połączenie FTP
+                    </button>
+                {% endif %}
+            </div>
+            {% if moduleKey == 'system_settings' %}
+                <div class="alert d-none mt-3 mb-0" role="alert" data-test-ftp-result></div>
+            {% endif %}
+        {% endif %}
+    </form>
+    {% set editableViewFields = viewEditableFields|default([]) %}
+    {% if readOnlyMode and viewActions|default([]) is not empty and editableViewFields is not empty %}
+        <form method="post" action="/cms/modules/{{ moduleKey }}/{{ recordId|default(values.id|default('')) }}/extra-action" class="mt-4 pt-3 border-top">
+            {% include 'backend/_csrf_token.html.twig' %}
+            <h2 class="h5 mb-3">Dane do uzupełnienia</h2>
+            {% for field in editableViewFields %}
+                {% set fieldName = field.name|default('') %}
+                {% set fieldType = field.type|default('text')|lower %}
+                {% set fieldLabel = field.label|default(fieldName) %}
+                {% set isRequired = field.required|default(false) %}
+                {% if fieldName and (field.form is not defined or field.form) and field.readonly|default(false) == false %}
+                    <div class="mb-3">
+                        <label class="form-label" for="view-field-{{ fieldName }}">
+                            {{ fieldLabel }}{% if isRequired %} <span class="text-danger">*</span>{% endif %}
+                        </label>
+                        {% if fieldType in ['textarea', 'richtext'] %}
+                            <textarea
+                                class="form-control"
+                                name="{{ fieldName }}"
+                                id="view-field-{{ fieldName }}"
+                                rows="{{ field.rows|default(4) }}"
+                                placeholder="{{ field.placeholder|default('') }}"
+                                {% if isRequired %}required{% endif %}
+                            >{{ values[fieldName]|default('') }}</textarea>
+                        {% elseif fieldType == 'select' %}
+                            {% set selectedValue = values[fieldName]|default('') %}
+                            <select class="form-select" name="{{ fieldName }}" id="view-field-{{ fieldName }}"{% if isRequired %} required{% endif %}>
+                                <option value="" {% if selectedValue == '' %}selected{% endif %}></option>
+                                {% for optionValue, optionLabel in field.options|default({}) %}
+                                    <option value="{{ optionValue }}" {% if optionValue == selectedValue %}selected{% endif %}>{{ optionLabel }}</option>
+                                {% endfor %}
+                            </select>
+                        {% elseif fieldType in ['checkbox', 'boolean'] %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="{{ fieldName }}" id="view-field-{{ fieldName }}" value="1" {% if values[fieldName]|default(false) %}checked{% endif %}{% if isRequired %} required{% endif %}>
+                                <label class="form-check-label" for="view-field-{{ fieldName }}">Tak</label>
+                            </div>
+                        {% elseif fieldType == 'date' %}
+                            <input class="form-control" type="date" name="{{ fieldName }}" id="view-field-{{ fieldName }}" value="{{ values[fieldName]|default('') }}"{% if isRequired %} required{% endif %}>
+                        {% elseif fieldType == 'datetime' %}
+                            <input class="form-control" type="datetime-local" name="{{ fieldName }}" id="view-field-{{ fieldName }}" value="{{ values[fieldName]|default('')|replace({' ': 'T'}) }}"{% if isRequired %} required{% endif %}>
+                        {% else %}
+                            <input class="form-control" type="text" name="{{ fieldName }}" id="view-field-{{ fieldName }}" value="{{ values[fieldName]|default('') }}" placeholder="{{ field.placeholder|default('') }}"{% if isRequired %} required{% endif %}>
+                        {% endif %}
+                        {% if field.help|default('') %}
+                            <div class="form-text">{{ field.help }}</div>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            {% endfor %}
+            <div class="d-flex flex-wrap gap-2">
+                {% for action in viewActions %}
+                    <button class="btn {{ action.class|default('btn-outline-secondary') }}" type="submit" name="action_key" value="{{ action.key }}"{% if action.confirm is defined %} onclick="return confirm('{{ action.confirm|e('js') }}');"{% endif %}>{{ action.label }}</button>
+                {% endfor %}
+            </div>
+        </form>
+    {% elseif readOnlyMode and viewActions|default([]) is not empty %}
+        <div class="d-flex flex-wrap gap-2 mt-4 pt-3 border-top">
+            {% for action in viewActions %}
+                <form method="post" action="/cms/modules/{{ moduleKey }}/{{ recordId|default(values.id|default('')) }}/extra-action" class="d-inline"{% if action.confirm is defined %} onsubmit="return confirm('{{ action.confirm|e('js') }}');"{% endif %}>
+                    {% include 'backend/_csrf_token.html.twig' %}
+                    <button class="btn {{ action.class|default('btn-outline-secondary') }}" type="submit" name="action_key" value="{{ action.key }}">{{ action.label }}</button>
+                </form>
+            {% endfor %}
+        </div>
+    {% endif %}
+</div>
+<script>
+    const moduleForm = document.querySelector('form[enctype="multipart/form-data"]');
+    const moduleFormSubmitButtons = moduleForm ? Array.from(moduleForm.querySelectorAll('button[type="submit"], input[type="submit"]')) : [];
+    let activeVideoUploads = 0;
+
+    const ftpTestButton = document.querySelector('[data-test-ftp-settings]');
+    const ftpTestResult = document.querySelector('[data-test-ftp-result]');
+
+    if (ftpTestButton && ftpTestResult && moduleForm) {
+        ftpTestButton.addEventListener('click', async () => {
+            const testUrl = ftpTestButton.getAttribute('data-test-ftp-url') || '';
+            if (!testUrl) {
+                return;
+            }
+
+            ftpTestButton.disabled = true;
+            ftpTestResult.className = 'alert alert-info mt-3 mb-0';
+            ftpTestResult.textContent = 'Sprawdzanie połączenia FTP...';
+
+            try {
+                const response = await fetch(testUrl, {
+                    method: 'POST',
+                    body: new FormData(moduleForm),
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                });
+                const payload = await response.json().catch(() => ({}));
+                const isSuccess = response.ok && payload.success === true;
+                ftpTestResult.className = `alert ${isSuccess ? 'alert-success' : 'alert-danger'} mt-3 mb-0`;
+                ftpTestResult.textContent = payload.message || (isSuccess
+                    ? 'Połączenie FTP działa poprawnie.'
+                    : 'Nie udało się sprawdzić połączenia FTP.');
+            } catch (error) {
+                ftpTestResult.className = 'alert alert-danger mt-3 mb-0';
+                ftpTestResult.textContent = 'Nie udało się wysłać testu połączenia FTP.';
+            } finally {
+                ftpTestButton.disabled = false;
+            }
+        });
+    }
+
+    const setModuleFormUploadingState = (isUploading) => {
+        if (!moduleForm) {
+            return;
+        }
+
+        activeVideoUploads = Math.max(0, activeVideoUploads + (isUploading ? 1 : -1));
+        const shouldDisableSubmit = activeVideoUploads > 0;
+        moduleFormSubmitButtons.forEach((button) => {
+            button.disabled = shouldDisableSubmit;
+        });
+    };
+
+    if (moduleForm) {
+        moduleForm.addEventListener('submit', (event) => {
+            if (activeVideoUploads > 0) {
+                event.preventDefault();
+                window.alert('Poczekaj na zakończenie wgrywania plików przed zapisaniem formularza.');
+            }
+        });
+    }
+
+    const moduleTabTriggers = document.querySelectorAll('[data-module-tab-trigger]');
+    const moduleTabPanels = document.querySelectorAll('[data-module-tab-panel]');
+
+    if (moduleTabTriggers.length && moduleTabPanels.length) {
+        const activateModuleTab = (tabKey) => {
+            moduleTabTriggers.forEach((trigger) => {
+                const isActive = trigger.dataset.moduleTabTrigger === tabKey;
+                trigger.classList.toggle('active', isActive);
+            });
+
+            moduleTabPanels.forEach((panel) => {
+                const isActive = panel.dataset.moduleTabPanel === tabKey;
+                panel.classList.toggle('d-none', !isActive);
+            });
+        };
+
+        moduleTabTriggers.forEach((trigger) => {
+            trigger.addEventListener('click', () => {
+                activateModuleTab(trigger.dataset.moduleTabTrigger || '');
+            });
+        });
+    }
+
+    const relationSearchWrappers = document.querySelectorAll('[data-relation-search="true"]');
+    relationSearchWrappers.forEach((wrapper) => {
+        const input = wrapper.querySelector('.relation-search-input');
+        const results = wrapper.querySelector('.relation-search-results');
+        const selected = wrapper.querySelector('.relation-search-selected');
+        const searchUrl = wrapper.dataset.searchUrl;
+        const fieldName = wrapper.dataset.fieldName;
+        const isMultiple = wrapper.dataset.multiple === '1';
+        const searchFiltersRaw = wrapper.dataset.searchFilters || '{}';
+        const minLength = 1;
+        let searchFilters = {};
+
+        try {
+            searchFilters = JSON.parse(searchFiltersRaw);
+        } catch (error) {
+            searchFilters = {};
+        }
+
+        if (!input || !results || !selected || !searchUrl || !fieldName) {
+            return;
+        }
+
+        const getSelectedValues = () => new Set(
+            Array.from(selected.querySelectorAll('input[type="hidden"]'))
+                .map((inputEl) => inputEl.value)
+        );
+
+        const removeSelection = (value) => {
+            const chip = selected.querySelector(`[data-value="${value}"]`);
+            if (chip) {
+                const hidden = chip.nextElementSibling;
+                if (hidden && hidden.tagName === 'INPUT') {
+                    hidden.remove();
+                }
+                chip.remove();
+            }
+        };
+
+        const addSelection = (value, label) => {
+            if (!value) {
+                return;
+            }
+
+            if (!isMultiple) {
+                selected.innerHTML = '';
+            }
+
+            const existing = getSelectedValues();
+            if (existing.has(value)) {
+                return;
+            }
+
+            const chip = document.createElement('span');
+            chip.className = 'badge bg-primary relation-search-chip';
+            chip.dataset.value = value;
+            chip.textContent = label;
+
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.className = 'btn-close btn-close-white relation-remove';
+            removeButton.setAttribute('aria-label', 'Usuń');
+
+            chip.appendChild(removeButton);
+
+            const hidden = document.createElement('input');
+            hidden.type = 'hidden';
+            hidden.name = isMultiple ? `${fieldName}[]` : fieldName;
+            hidden.value = value;
+
+            selected.appendChild(chip);
+            selected.appendChild(hidden);
+        };
+
+        const clearResults = () => {
+            results.innerHTML = '';
+        };
+
+        const renderResults = (items) => {
+            clearResults();
+            if (!items.length) {
+                return;
+            }
+
+            const selectedValues = getSelectedValues();
+
+            items.forEach((item) => {
+                if (selectedValues.has(item.value)) {
+                    return;
+                }
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'list-group-item list-group-item-action';
+                button.dataset.value = item.value;
+                button.dataset.label = item.label;
+                button.textContent = item.label;
+                results.appendChild(button);
+            });
+        };
+
+        let debounceTimer;
+        input.addEventListener('input', () => {
+            const term = input.value.trim();
+            clearTimeout(debounceTimer);
+
+            if (term.length < minLength) {
+                clearResults();
+                return;
+            }
+
+            debounceTimer = setTimeout(async () => {
+                const url = new URL(searchUrl, window.location.origin);
+                url.searchParams.set('q', term);
+
+                Object.keys(searchFilters).forEach((queryParam) => {
+                    const sourceField = (searchFilters[queryParam] || '').toString().trim();
+                    if (!sourceField) {
+                        return;
+                    }
+
+                    const hiddenInput = document.querySelector(`input[type="hidden"][name="${sourceField}"]`);
+                    let sourceValue = '';
+                    if (hiddenInput) {
+                        sourceValue = hiddenInput.value.trim();
+                    } else {
+                        const sourceSelect = document.getElementById(`field-${sourceField}`);
+                        if (sourceSelect instanceof HTMLSelectElement) {
+                            sourceValue = sourceSelect.value.trim();
+                        }
+                    }
+
+                    if (sourceValue !== '') {
+                        url.searchParams.set(queryParam, sourceValue);
+                    }
+                });
+
+                try {
+                    const response = await fetch(url.toString(), {
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                    });
+                    if (!response.ok) {
+                        clearResults();
+                        return;
+                    }
+                    const payload = await response.json();
+                    renderResults(payload.items || []);
+                } catch (error) {
+                    clearResults();
+                }
+            }, 250);
+        });
+
+        results.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            if (!target.dataset.value) {
+                return;
+            }
+            addSelection(target.dataset.value, target.dataset.label || target.textContent || target.dataset.value);
+            input.value = '';
+            clearResults();
+        });
+
+        selected.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            if (!target.classList.contains('relation-remove')) {
+                return;
+            }
+            const chip = target.closest('.relation-search-chip');
+            if (!chip) {
+                return;
+            }
+            removeSelection(chip.dataset.value);
+        });
+    });
+
+
+    const linkListEditors = document.querySelectorAll('[data-link-list-editor="true"]');
+    linkListEditors.forEach((editor) => {
+        const itemsContainer = editor.querySelector('[data-link-list-items="true"]');
+        const addButton = editor.querySelector('[data-link-list-add="true"]');
+        const template = editor.querySelector('template[data-link-list-template="true"]');
+        const hiddenInput = editor.querySelector('[data-link-list-input="true"]');
+
+        if (!itemsContainer || !addButton || !template || !hiddenInput) {
+            return;
+        }
+
+        const serializeItems = () => {
+            const payload = [];
+            itemsContainer.querySelectorAll('[data-link-list-item="true"]').forEach((item) => {
+                const nameInput = item.querySelector('[data-link-list-name="true"]');
+                const fileSelect = item.querySelector('[data-link-list-file="true"]');
+                if (!(nameInput instanceof HTMLInputElement) || !(fileSelect instanceof HTMLSelectElement)) {
+                    return;
+                }
+
+                const name = nameInput.value.trim();
+                const fileId = fileSelect.value.trim();
+                if (!name || !fileId) {
+                    return;
+                }
+
+                payload.push({ nazwa: name, file_id: fileId });
+            });
+
+            hiddenInput.value = JSON.stringify(payload);
+        };
+
+        const attachItemListeners = (item) => {
+            const upButton = item.querySelector('[data-link-list-up="true"]');
+            const downButton = item.querySelector('[data-link-list-down="true"]');
+            const removeButton = item.querySelector('[data-link-list-remove="true"]');
+            const nameInput = item.querySelector('[data-link-list-name="true"]');
+            const fileSelect = item.querySelector('[data-link-list-file="true"]');
+
+            if (upButton) {
+                upButton.addEventListener('click', () => {
+                    const previous = item.previousElementSibling;
+                    if (previous) {
+                        itemsContainer.insertBefore(item, previous);
+                        serializeItems();
+                    }
+                });
+            }
+
+            if (downButton) {
+                downButton.addEventListener('click', () => {
+                    const next = item.nextElementSibling;
+                    if (next) {
+                        itemsContainer.insertBefore(next, item);
+                        serializeItems();
+                    }
+                });
+            }
+
+            if (removeButton) {
+                removeButton.addEventListener('click', () => {
+                    item.remove();
+                    serializeItems();
+                });
+            }
+
+            if (nameInput) {
+                nameInput.addEventListener('input', serializeItems);
+            }
+
+            if (fileSelect) {
+                fileSelect.addEventListener('change', serializeItems);
+            }
+        };
+
+        itemsContainer.querySelectorAll('[data-link-list-item="true"]').forEach(attachItemListeners);
+
+        addButton.addEventListener('click', () => {
+            const fragment = template.content.cloneNode(true);
+            const newItem = fragment.querySelector('[data-link-list-item="true"]');
+            if (!(newItem instanceof HTMLElement)) {
+                return;
+            }
+
+            attachItemListeners(newItem);
+            itemsContainer.appendChild(newItem);
+            serializeItems();
+        });
+
+        serializeItems();
+    });
+
+    const structuredListEditors = document.querySelectorAll('[data-structured-list-editor="true"]');
+    structuredListEditors.forEach((editor) => {
+        const itemsContainer = editor.querySelector('[data-structured-list-items="true"]');
+        const addButton = editor.querySelector('[data-structured-list-add="true"]');
+        const template = editor.querySelector('template[data-structured-list-template="true"]');
+        const hiddenInput = editor.querySelector('[data-structured-list-input="true"]');
+
+        if (!itemsContainer || !addButton || !template || !hiddenInput) {
+            return;
+        }
+
+        const serializeItems = () => {
+            const payload = [];
+            itemsContainer.querySelectorAll('[data-structured-list-item="true"]').forEach((item) => {
+                const row = {};
+                let hasValue = false;
+                item.querySelectorAll('[data-structured-list-value]').forEach((input) => {
+                    if (!(input instanceof HTMLInputElement)) {
+                        return;
+                    }
+                    const key = input.dataset.structuredListValue || '';
+                    if (!key) {
+                        return;
+                    }
+                    const value = input.value.trim();
+                    row[key] = value;
+                    if (value !== '') {
+                        hasValue = true;
+                    }
+                });
+
+                if (hasValue) {
+                    payload.push(row);
+                }
+            });
+
+            hiddenInput.value = JSON.stringify(payload);
+        };
+
+        const attachItemListeners = (item) => {
+            const upButton = item.querySelector('[data-structured-list-up="true"]');
+            const downButton = item.querySelector('[data-structured-list-down="true"]');
+            const removeButton = item.querySelector('[data-structured-list-remove="true"]');
+
+            if (upButton) {
+                upButton.addEventListener('click', () => {
+                    const previous = item.previousElementSibling;
+                    if (previous) {
+                        itemsContainer.insertBefore(item, previous);
+                        serializeItems();
+                    }
+                });
+            }
+
+            if (downButton) {
+                downButton.addEventListener('click', () => {
+                    const next = item.nextElementSibling;
+                    if (next) {
+                        itemsContainer.insertBefore(next, item);
+                        serializeItems();
+                    }
+                });
+            }
+
+            if (removeButton) {
+                removeButton.addEventListener('click', () => {
+                    item.remove();
+                    serializeItems();
+                });
+            }
+
+            item.querySelectorAll('[data-structured-list-value]').forEach((input) => {
+                input.addEventListener('input', serializeItems);
+                input.addEventListener('change', serializeItems);
+            });
+
+            item.querySelectorAll('[data-structured-list-image-input="true"]').forEach((fileInput) => {
+                if (!(fileInput instanceof HTMLInputElement)) {
+                    return;
+                }
+
+                fileInput.addEventListener('change', async () => {
+                    const file = fileInput.files && fileInput.files.length > 0 ? fileInput.files[0] : null;
+                    if (!file) {
+                        return;
+                    }
+                    if (!file.type || !file.type.startsWith('image/')) {
+                        window.alert('Wybierz plik graficzny.');
+                        fileInput.value = '';
+                        return;
+                    }
+
+                    const fieldKey = fileInput.dataset.structuredListImageName || '';
+                    const hiddenImageInput = fieldKey ? item.querySelector(`[data-structured-list-value="${fieldKey}"]`) : null;
+                    const status = fileInput.parentElement ? fileInput.parentElement.querySelector('[data-structured-list-image-status="true"]') : null;
+                    const previewWrapper = fileInput.parentElement ? fileInput.parentElement.querySelector('[data-structured-list-image-preview-wrapper="true"]') : null;
+                    const previewLink = fileInput.parentElement ? fileInput.parentElement.querySelector('[data-structured-list-image-link="true"]') : null;
+                    const preview = fileInput.parentElement ? fileInput.parentElement.querySelector('[data-structured-list-image-preview="true"]') : null;
+                    if (!(hiddenImageInput instanceof HTMLInputElement) || !fieldKey) {
+                        return;
+                    }
+
+                    const uploadUrl = `/cms/modules/{{ moduleKey|url_encode }}/chunk-upload/${encodeURIComponent(hiddenInput.name || 'structured_list')}-${encodeURIComponent(fieldKey)}`;
+                    const csrfTokenInput = moduleForm ? moduleForm.querySelector('input[name="_csrf_token"]') : null;
+                    const csrfToken = csrfTokenInput instanceof HTMLInputElement ? csrfTokenInput.value : '';
+                    const formData = new FormData();
+                    if (csrfToken) {
+                        formData.append('_csrf_token', csrfToken);
+                    }
+                    formData.append('uploadId', `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+                    formData.append('chunkIndex', '0');
+                    formData.append('totalChunks', '1');
+                    formData.append('originalName', file.name);
+                    formData.append('chunk', file, file.name);
+
+                    setModuleFormUploadingState(true);
+                    if (status) {
+                        status.textContent = 'Wgrywanie zdjęcia...';
+                    }
+
+                    try {
+                        const response = await fetch(uploadUrl, {
+                            method: 'POST',
+                            body: formData,
+                            headers: {
+                                'X-Requested-With': 'XMLHttpRequest',
+                                ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+                            },
+                        });
+                        const payload = await response.json().catch(() => ({}));
+                        if (!response.ok || !payload.done || !payload.path) {
+                            throw new Error(payload.error || 'Nie udało się wgrać zdjęcia.');
+                        }
+
+                        hiddenImageInput.value = payload.path;
+                        if (previewWrapper instanceof HTMLElement) {
+                            previewWrapper.classList.remove('d-none');
+                        }
+                        if (previewLink instanceof HTMLAnchorElement) {
+                            previewLink.href = payload.path;
+                        }
+                        if (preview instanceof HTMLImageElement) {
+                            preview.src = payload.path;
+                        }
+                        if (status) {
+                            status.textContent = 'Zdjęcie wgrane.';
+                        }
+                        serializeItems();
+                    } catch (error) {
+                        if (status) {
+                            status.textContent = error instanceof Error ? error.message : 'Nie udało się wgrać zdjęcia.';
+                        }
+                    } finally {
+                        setModuleFormUploadingState(false);
+                    }
+                });
+            });
+        };
+
+        itemsContainer.querySelectorAll('[data-structured-list-item="true"]').forEach(attachItemListeners);
+
+        addButton.addEventListener('click', () => {
+            const fragment = template.content.cloneNode(true);
+            const newItem = fragment.querySelector('[data-structured-list-item="true"]');
+            if (!(newItem instanceof HTMLElement)) {
+                return;
+            }
+
+            attachItemListeners(newItem);
+            itemsContainer.appendChild(newItem);
+            serializeItems();
+        });
+
+        serializeItems();
+    });
+
+    const padNumber = (value) => String(value).padStart(2, '0');
+
+    const formatCurrentDate = (date) => `${date.getFullYear()}-${padNumber(date.getMonth() + 1)}-${padNumber(date.getDate())}`;
+    const formatCurrentDateTime = (date) => `${formatCurrentDate(date)} ${padNumber(date.getHours())}:${padNumber(date.getMinutes())}:${padNumber(date.getSeconds())}`;
+
+    document.querySelectorAll('button[data-set-current-date="true"]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const targetId = button.getAttribute('data-target-id');
+            if (!targetId) {
+                return;
+            }
+
+            const target = document.getElementById(targetId);
+            if (!(target instanceof HTMLInputElement)) {
+                return;
+            }
+
+            const now = new Date();
+            target.value = formatCurrentDate(now);
+            target.dispatchEvent(new Event('input', { bubbles: true }));
+            target.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+    });
+
+    document.querySelectorAll('button[data-set-current-datetime="true"]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const targetId = button.getAttribute('data-target-id');
+            if (!targetId) {
+                return;
+            }
+
+            const target = document.getElementById(targetId);
+            if (!(target instanceof HTMLInputElement)) {
+                return;
+            }
+
+            const now = new Date();
+            if (target._flatpickr && typeof target._flatpickr.setDate === 'function') {
+                target._flatpickr.setDate(now, true);
+            } else {
+                target.value = formatCurrentDateTime(now);
+                target.dispatchEvent(new Event('input', { bubbles: true }));
+                target.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        });
+    });
+</script>
+{% if hasDateTime and not readOnlyMode %}
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            if (typeof flatpickr !== 'function') {
+                return;
+            }
+
+            document.querySelectorAll('input[data-datetime-picker="true"]').forEach((input) => {
+                flatpickr(input, {
+                    enableTime: true,
+                    enableSeconds: true,
+                    time_24hr: true,
+                    dateFormat: 'Y-m-d H:i:S',
+                    altInput: true,
+                    altFormat: 'Y-m-d H:i:S',
+                    allowInput: true,
+                    minuteIncrement: 1,
+                });
+            });
+        });
+    </script>
+{% endif %}
+{% if hasWysiwyg %}
+    <style>
+        .ck-content ul {
+            margin: 0;
+        }
+
+        .ckeditor-file-link-modal {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+
+        .ckeditor-file-link-modal.is-open {
+            display: flex;
+        }
+
+        .ckeditor-file-link-modal__backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.45);
+        }
+
+        .ckeditor-file-link-modal__dialog {
+            position: relative;
+            width: min(640px, calc(100vw - 2rem));
+            max-height: calc(100vh - 2rem);
+            overflow: auto;
+            background: #fff;
+            border-radius: 0.75rem;
+            box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.25);
+            padding: 1rem;
+        }
+
+        .ckeditor-file-link-modal__header {
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+
+        .ckeditor-file-link-modal__title {
+            margin: 0;
+            font-size: 1.125rem;
+        }
+
+        .ckeditor-file-link-modal__subtitle {
+            margin: 0.25rem 0 0;
+            color: #6c757d;
+        }
+
+        .ckeditor-file-link-modal__select {
+            min-height: 280px;
+        }
+    </style>
+    <script src="https://cdn.ckeditor.com/ckeditor5/39.0.1/super-build/ckeditor.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const editorFactory = window.CKEDITOR && window.CKEDITOR.ClassicEditor
+                ? window.CKEDITOR.ClassicEditor
+                : window.ClassicEditor;
+
+            if (!editorFactory || typeof editorFactory.create !== 'function') {
+                return;
+            }
+
+            const canBrowseFiles = {{ canBrowseFiles ? 'true' : 'false' }};
+            const activeFileLinkEditors = new Map();
+
+            const ensureFileLinkModal = () => {
+                let modal = document.getElementById('ckeditor-file-link-modal');
+                if (modal) {
+                    return modal;
+                }
+
+                modal = document.createElement('div');
+                modal.id = 'ckeditor-file-link-modal';
+                modal.className = 'ckeditor-file-link-modal';
+                modal.innerHTML = `
+                    <div class="ckeditor-file-link-modal__backdrop" data-file-link-close="true"></div>
+                    <div class="ckeditor-file-link-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="ckeditor-file-link-title">
+                        <div class="ckeditor-file-link-modal__header">
+                            <div>
+                                <h3 id="ckeditor-file-link-title" class="ckeditor-file-link-modal__title">Wstaw link do pliku</h3>
+                                <p class="ckeditor-file-link-modal__subtitle">Wybierz plik z modułu Pliki i wstaw go do treści.</p>
+                            </div>
+                            <button type="button" class="btn-close" aria-label="Zamknij" data-file-link-close="true"></button>
+                        </div>
+                        <div class="ckeditor-file-link-modal__body">
+                            <label class="form-label" for="ckeditor-file-link-select">Dostępne pliki</label>
+                            <select id="ckeditor-file-link-select" class="form-select ckeditor-file-link-modal__select" size="12" data-file-link-select="true"></select>
+                            <div class="d-flex justify-content-end mt-3">
+                                <button type="button" class="btn btn-primary" data-file-link-insert="true">Wstaw wybrany plik</button>
+                            </div>
+                            <div class="small text-muted mt-2" data-file-link-status="true"></div>
+                        </div>
+                    </div>
+                `;
+
+                modal.addEventListener('click', (event) => {
+                    if (event.target instanceof HTMLElement && event.target.dataset.fileLinkClose === 'true') {
+                        modal.classList.remove('is-open');
+                    }
+                });
+
+                const insertSelectedFileLink = (modal, editor) => {
+                    const select = modal.querySelector('[data-file-link-select="true"]');
+                    const status = modal.querySelector('[data-file-link-status="true"]');
+                    if (!(select instanceof HTMLSelectElement) || !(status instanceof HTMLElement)) {
+                        return;
+                    }
+
+                    const selectedOption = select.options[select.selectedIndex] || null;
+                    if (!(selectedOption instanceof HTMLOptionElement) || selectedOption.value === '') {
+                        status.textContent = 'Wybierz plik z listy, aby wstawić link.';
+                        return;
+                    }
+
+                    const item = {
+                        label: selectedOption.dataset.label || selectedOption.textContent || selectedOption.value,
+                        originalName: selectedOption.dataset.originalName || '',
+                        url: selectedOption.value,
+                    };
+
+                    const savedSelection = editor._fileLinkSelection || editor.model.document.selection;
+                    editor.model.change((writer) => {
+                        writer.setSelection(savedSelection);
+                    });
+
+                    const selection = editor.model.document.selection;
+                    if (!selection.isCollapsed) {
+                        editor.execute('link', item.url);
+                    } else {
+                        editor.model.change((writer) => {
+                            const insertPosition = selection.getFirstPosition();
+                            writer.insertText(item.label || item.originalName || item.url, { linkHref: item.url }, insertPosition);
+                        });
+                    }
+
+                    modal.classList.remove('is-open');
+                    editor.editing.view.focus();
+                };
+
+                const select = modal.querySelector('[data-file-link-select="true"]');
+                const insertButton = modal.querySelector('[data-file-link-insert="true"]');
+                if (select instanceof HTMLSelectElement) {
+                    select.addEventListener('dblclick', () => {
+                        const editorId = modal.dataset.editorId || '';
+                        const editor = activeFileLinkEditors.get(editorId);
+                        if (editor) {
+                            insertSelectedFileLink(modal, editor);
+                        }
+                    });
+                }
+                if (insertButton instanceof HTMLButtonElement) {
+                    insertButton.addEventListener('click', () => {
+                        const editorId = modal.dataset.editorId || '';
+                        const editor = activeFileLinkEditors.get(editorId);
+                        if (editor) {
+                            insertSelectedFileLink(modal, editor);
+                        }
+                    });
+                }
+
+                document.body.appendChild(modal);
+
+                return modal;
+            };
+
+            const loadFileLinkResults = (modal) => {
+                const select = modal.querySelector('[data-file-link-select="true"]');
+                const status = modal.querySelector('[data-file-link-status="true"]');
+                if (!(select instanceof HTMLSelectElement) || !(status instanceof HTMLElement)) {
+                    return;
+                }
+
+                select.innerHTML = '';
+                status.textContent = 'Ładowanie plików...';
+
+                const url = new URL('/cms/modules/file-browser', window.location.origin);
+                url.searchParams.set('limit', '500');
+
+                fetch(url.toString(), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                    .then(async (response) => {
+                        if (!response.ok) {
+                            if (response.status === 401 || response.status === 403) {
+                                throw new Error('Brak uprawnień do podglądu plików.');
+                            }
+
+                            throw new Error('Nie udało się pobrać plików.');
+                        }
+
+                        try {
+                            return await response.json();
+                        } catch (error) {
+                            throw new Error('Serwer zwrócił niepoprawną odpowiedź.');
+                        }
+                    })
+                    .then((payload) => {
+                        const items = Array.isArray(payload.items) ? payload.items : [];
+                        if (!items.length) {
+                            status.textContent = 'Brak dostępnych plików do wstawienia.';
+                            return;
+                        }
+
+                        items.forEach((item) => {
+                            const option = document.createElement('option');
+                            option.value = item.url || '';
+                            option.dataset.label = item.label || '';
+                            option.dataset.originalName = item.originalName || '';
+                            option.textContent = item.label || item.originalName || item.url || 'Bez nazwy';
+                            if (item.originalName && item.originalName !== option.textContent) {
+                                option.textContent += ` — ${item.originalName}`;
+                            }
+                            select.appendChild(option);
+                        });
+
+                        if (select.options.length > 0) {
+                            select.selectedIndex = 0;
+                        }
+
+                        status.textContent = 'Wybierz plik z listy i kliknij „Wstaw wybrany plik”.';
+                    })
+                    .catch((error) => {
+                        status.textContent = error instanceof Error ? error.message : 'Nie udało się pobrać listy plików.';
+                    });
+            };
+
+            const openFileLinkModal = (editor) => {
+                if (!canBrowseFiles) {
+                    return;
+                }
+
+                const modal = ensureFileLinkModal();
+                const select = modal.querySelector('[data-file-link-select="true"]');
+                if (!(select instanceof HTMLSelectElement)) {
+                    return;
+                }
+
+                editor._fileLinkSelection = editor.model.createSelection(editor.model.document.selection);
+                const editorId = editor.id || `editor-${activeFileLinkEditors.size + 1}`;
+                activeFileLinkEditors.set(editorId, editor);
+                modal.dataset.editorId = editorId;
+                modal.classList.add('is-open');
+                loadFileLinkResults(modal);
+                window.setTimeout(() => select.focus(), 0);
+            };
+
+            const mountFileLinkToolbarButton = (editor) => {
+                if (!canBrowseFiles) {
+                    return;
+                }
+
+                const toolbarElement = editor.ui.view.toolbar.element;
+                if (!(toolbarElement instanceof HTMLElement) || toolbarElement.querySelector('[data-cke-file-link-button="true"]')) {
+                    return;
+                }
+
+                const toolbarItems = toolbarElement.querySelector('.ck-toolbar__items');
+                if (!(toolbarItems instanceof HTMLElement)) {
+                    return;
+                }
+
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'ck ck-button ck-off';
+                button.dataset.ckeFileLinkButton = 'true';
+                button.title = 'Wstaw link do pliku';
+                button.setAttribute('aria-label', 'Wstaw link do pliku');
+                button.innerHTML = `
+                    <span class="ck ck-icon ck-button__icon" aria-hidden="true">
+                        <svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M15.5 17h-11A2.5 2.5 0 0 1 2 14.5v-9A2.5 2.5 0 0 1 4.5 3H10l5.5 5.5v6A2.5 2.5 0 0 1 15.5 17Zm-5-12.5H4.5A1.5 1.5 0 0 0 3 6v8.5A1.5 1.5 0 0 0 4.5 16h11a1.5 1.5 0 0 0 1.5-1.5V9h-4A2.5 2.5 0 0 1 10.5 6.5v-2Zm1 0V6.5A1.5 1.5 0 0 0 13 8h2.8l-4.3-4.3Z"/>
+                            <path d="M6 11.5h8v1H6zm0 2.5h6v1H6z"/>
+                        </svg>
+                    </span>
+                    <span class="ck ck-button__label">Plik</span>
+                `;
+                button.addEventListener('click', () => openFileLinkModal(editor));
+
+                const insertAfterLinkButton = toolbarItems.querySelector('.ck-button[aria-label=\"Link\"], .ck-button[aria-label=\"Edytuj link\"]');
+                if (insertAfterLinkButton && insertAfterLinkButton.parentNode === toolbarItems) {
+                    insertAfterLinkButton.insertAdjacentElement('afterend', button);
+                    return;
+                }
+
+                toolbarItems.appendChild(button);
+            };
+
+            document.querySelectorAll('textarea[data-wysiwyg="true"]').forEach((textarea) => {
+                const isReadOnly = textarea.dataset.wysiwygReadonly === 'true';
+                const toolbarItems = [
+                    'sourceEditing',
+                    '|',
+                    'heading',
+                    '|',
+                    'bold',
+                    'italic',
+                    'underline',
+                    'strikethrough',
+                    '|',
+                    'fontSize',
+                    'fontColor',
+                    'fontBackgroundColor',
+                    '|',
+                    'link',
+                ];
+
+                toolbarItems.push(
+                    'bulletedList',
+                    'numberedList',
+                    '|',
+                    'removeFormat',
+                    '|',
+                    'undo',
+                    'redo',
+                );
+
+                editorFactory.create(textarea, {
+                    removePlugins: [
+                        'AIAssistant',
+                        'CKBox',
+                        'CKFinder',
+                        'EasyImage',
+                        'RealTimeCollaborativeComments',
+                        'RealTimeCollaborativeTrackChanges',
+                        'RealTimeCollaborativeRevisionHistory',
+                        'PresenceList',
+                        'Comments',
+                        'TrackChanges',
+                        'TrackChangesData',
+                        'RevisionHistory',
+                        'Pagination',
+                        'WProofreader',
+                        'MathType',
+                        'SlashCommand',
+                        'Template',
+                        'DocumentOutline',
+                        'FormatPainter',
+                        'TableOfContents',
+                        'PasteFromOfficeEnhanced',
+                    ],
+                    fontSize: {
+                        options: [
+                            10,
+                            12,
+                            14,
+                            'default',
+                            18,
+                            20,
+                            24,
+                            28,
+                            32,
+                            36,
+                        ],
+                        supportAllValues: true,
+                    },
+                    toolbar: {
+                        items: toolbarItems,
+                        shouldNotGroupWhenFull: true,
+                    },
+                })
+                    .then((editor) => {
+                        mountFileLinkToolbarButton(editor);
+                        if (isReadOnly) {
+                            if (typeof editor.enableReadOnlyMode === 'function') {
+                                editor.enableReadOnlyMode('wysiwyg');
+                            } else {
+                                editor.isReadOnly = true;
+                            }
+                        }
+                    })
+                    .catch((error) => {
+                        console.error(error);
+                    });
+            });
+        });
+    </script>
+{% endif %}
+{% if hasDependentRelations %}
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('select[data-depends-on]').forEach((select) => {
+                const dependsOn = select.dataset.dependsOn;
+                if (!dependsOn) {
+                    return;
+                }
+
+                const dependencySelect = document.getElementById(`field-${dependsOn}`);
+                if (!dependencySelect) {
+                    return;
+                }
+
+                const allOptions = Array.from(select.options).map((option) => ({
+                    value: option.value,
+                    label: option.textContent,
+                    dependsValue: option.dataset.dependsValue || '',
+                }));
+                const placeholderOption = allOptions.find((option) => option.value === '');
+                const placeholderLabel = select.dataset.placeholder || (placeholderOption ? placeholderOption.label : '');
+                const noDependencyLabel = select.dataset.noDependencyLabel || placeholderLabel || 'Najpierw wybierz wartość nadrzędną';
+                const emptyLabel = select.dataset.emptyLabel || 'Brak opcji dla wybranego elementu';
+
+                const renderOptions = (selectedDependency, keepValue) => {
+                    const previousValue = keepValue ? select.value : '';
+                    select.innerHTML = '';
+
+                    const filteredOptions = allOptions.filter((option) => {
+                        if (option.value === '') {
+                            return true;
+                        }
+
+                        return selectedDependency !== '' && option.dependsValue === selectedDependency;
+                    });
+
+                    if (placeholderOption) {
+                        const placeholder = document.createElement('option');
+                        placeholder.value = '';
+                        if (selectedDependency === '') {
+                            placeholder.textContent = noDependencyLabel;
+                            placeholder.selected = true;
+                        } else if (filteredOptions.length === 1) {
+                            placeholder.textContent = emptyLabel;
+                            placeholder.selected = true;
+                        } else {
+                            placeholder.textContent = placeholderLabel;
+                        }
+                        select.appendChild(placeholder);
+                    }
+
+                    filteredOptions.forEach((option) => {
+                        if (option.value === '') {
+                            return;
+                        }
+
+                        const newOption = document.createElement('option');
+                        newOption.value = option.value;
+                        newOption.textContent = option.label;
+                        if (option.dependsValue) {
+                            newOption.dataset.dependsValue = option.dependsValue;
+                        }
+                        select.appendChild(newOption);
+                    });
+
+                    if (previousValue && Array.from(select.options).some((option) => option.value === previousValue)) {
+                        select.value = previousValue;
+                    }
+                };
+
+                renderOptions(dependencySelect.value, true);
+                dependencySelect.addEventListener('change', () => {
+                    renderOptions(dependencySelect.value, false);
+                });
+            });
+        });
+    </script>
+{% endif %}
+{% if hasConditionalVisibility %}
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const wrappers = Array.from(document.querySelectorAll('[data-visible-if-field][data-visible-if-values]'));
+
+            const getFieldElements = (fieldName) => {
+                if (!fieldName) {
+                    return [];
+                }
+
+                const escapedName = window.CSS && typeof window.CSS.escape === 'function'
+                    ? window.CSS.escape(fieldName)
+                    : fieldName.replace(/"/g, '\\"');
+
+                return Array.from(document.querySelectorAll(`[name="${escapedName}"], [name="${escapedName}[]"]`));
+            };
+
+            const getSelectedValues = (fieldElements) => {
+                const values = [];
+                fieldElements.forEach((element) => {
+                    if (element instanceof HTMLSelectElement && element.multiple) {
+                        Array.from(element.selectedOptions).forEach((option) => values.push(option.value));
+                        return;
+                    }
+
+                    if (element instanceof HTMLInputElement && ['checkbox', 'radio'].includes(element.type)) {
+                        if (element.checked) {
+                            values.push(element.value);
+                        }
+                        return;
+                    }
+
+                    values.push(element.value);
+                });
+
+                return values.filter((value) => value !== '');
+            };
+
+            const setWrapperEnabled = (wrapper, isVisible) => {
+                wrapper.classList.toggle('d-none', !isVisible);
+                wrapper.querySelectorAll('input, select, textarea, button').forEach((input) => {
+                    if (isVisible) {
+                        if (input.dataset.wasDisabledByVisibility === '1') {
+                            input.disabled = false;
+                            delete input.dataset.wasDisabledByVisibility;
+                        }
+                        return;
+                    }
+
+                    if (input.disabled) {
+                        return;
+                    }
+
+                    input.disabled = true;
+                    input.dataset.wasDisabledByVisibility = '1';
+                });
+            };
+
+            const updateVisibility = () => {
+                wrappers.forEach((wrapper) => {
+                    const dependsField = wrapper.dataset.visibleIfField || '';
+                    const dependsValuesRaw = wrapper.dataset.visibleIfValues || '[]';
+                    let expectedValues = [];
+
+                    try {
+                        expectedValues = JSON.parse(dependsValuesRaw);
+                    } catch (error) {
+                        expectedValues = [];
+                    }
+
+                    const fieldElements = getFieldElements(dependsField);
+                    const selectedValues = getSelectedValues(fieldElements);
+                    const shouldShow = fieldElements.length > 0
+                        && expectedValues.some((expectedValue) => selectedValues.includes(String(expectedValue)));
+
+                    setWrapperEnabled(wrapper, shouldShow);
+                });
+            };
+
+            const dependencyFields = new Set(
+                wrappers.map((wrapper) => wrapper.dataset.visibleIfField || '').filter((fieldName) => fieldName !== '')
+            );
+
+            dependencyFields.forEach((fieldName) => {
+                getFieldElements(fieldName).forEach((element) => {
+                    element.addEventListener('change', updateVisibility);
+                    element.addEventListener('input', updateVisibility);
+                });
+            });
+
+            updateVisibility();
+        });
+    </script>
+{% endif %}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        document.querySelectorAll('[data-json-pretty-field="true"]').forEach((field) => {
+            if (!(field instanceof HTMLTextAreaElement)) {
+                return;
+            }
+
+            const formatValue = () => {
+                const rawValue = field.value.trim();
+                if (rawValue === '') {
+                    return;
+                }
+
+                try {
+                    const parsed = JSON.parse(rawValue);
+                    field.value = JSON.stringify(parsed, null, 2);
+                } catch (error) {
+                    // Zostawiamy oryginalny tekst, jeśli wartość nie jest poprawnym JSON-em.
+                }
+            };
+
+            formatValue();
+
+            if (field.dataset.jsonReadonly !== '1') {
+                field.addEventListener('blur', formatValue);
+            }
+        });
+
+        document.querySelectorAll('[data-json-pretty-display="true"]').forEach((field) => {
+            const rawValue = (field.textContent || '').trim();
+            if (rawValue === '') {
+                field.textContent = '—';
+                return;
+            }
+
+            const formatStructuredList = (value) => {
+                if (!Array.isArray(value) || value.length === 0) {
+                    return null;
+                }
+
+                const lines = [];
+
+                value.forEach((item, index) => {
+                    lines.push(`${index + 1}.`);
+
+                    if (item && typeof item === 'object' && !Array.isArray(item)) {
+                        Object.entries(item).forEach(([key, itemValue]) => {
+                            const normalizedValue = itemValue === null
+                                ? 'null'
+                                : (typeof itemValue === 'object' ? JSON.stringify(itemValue) : String(itemValue));
+                            lines.push(`${key}: ${normalizedValue}`);
+                        });
+                    } else {
+                        lines.push(String(item));
+                    }
+
+                    lines.push('');
+                });
+
+                return lines.join('\n').trim();
+            };
+
+            try {
+                const parsed = JSON.parse(rawValue);
+                const structuredList = formatStructuredList(parsed);
+                field.textContent = structuredList ?? JSON.stringify(parsed, null, 2);
+            } catch (error) {
+                // Zostawiamy oryginalny tekst, jeśli wartość nie jest poprawnym JSON-em.
+            }
+        });
+
+        const formatUploadSpeed = (bytesPerSecond) => {
+            if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) {
+                return '';
+            }
+
+            const units = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+            let speed = bytesPerSecond;
+            let unitIndex = 0;
+            while (speed >= 1024 && unitIndex < units.length - 1) {
+                speed /= 1024;
+                unitIndex++;
+            }
+
+            const precision = speed >= 10 || unitIndex === 0 ? 0 : 1;
+            return `${speed.toFixed(precision)} ${units[unitIndex]}`;
+        };
+
+        const uploadVideoChunk = (url, formData, onProgress) => new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', url, true);
+            xhr.withCredentials = true;
+            xhr.setRequestHeader('X-CSRF-Token', adminCsrfToken);
+
+            xhr.upload.onprogress = (event) => {
+                if (event.lengthComputable) {
+                    onProgress(event.loaded);
+                }
+            };
+
+            xhr.onload = () => {
+                const rawPayload = xhr.responseText || '';
+                let payload = {};
+                if (rawPayload !== '') {
+                    try {
+                        payload = JSON.parse(rawPayload);
+                    } catch (parseError) {
+                        payload = { error: rawPayload };
+                    }
+                }
+
+                if (xhr.status < 200 || xhr.status >= 300) {
+                    reject({
+                        isUploadResponseError: true,
+                        status: xhr.status,
+                        payload,
+                        rawPayload
+                    });
+                    return;
+                }
+
+                resolve({ payload, rawPayload });
+            };
+
+            xhr.onerror = () => reject(new Error('Upload network error'));
+            xhr.onabort = () => reject(new Error('Upload aborted'));
+            xhr.send(formData);
+        });
+
+        document.querySelectorAll('[data-video-upload="true"]').forEach((wrapper) => {
+            const fileInput = wrapper.querySelector('[data-video-input="true"]');
+            const hiddenInput = wrapper.querySelector('[data-video-hidden-input="true"]');
+            const status = wrapper.querySelector('[data-video-status="true"]');
+            const progressWrapper = wrapper.querySelector('[data-video-progress-wrapper="true"]');
+            const progressBar = wrapper.querySelector('[data-video-progress-bar="true"]');
+            const previewWrapper = wrapper.querySelector('[data-video-preview-wrapper="true"]');
+            const preview = wrapper.querySelector('[data-video-preview="true"]');
+            const removeCheckbox = wrapper.querySelector('[data-video-remove-checkbox="true"]');
+            const uploadUrl = wrapper.dataset.uploadUrl || '';
+            const fieldName = wrapper.dataset.fieldName || '';
+            const maxSizeMb = wrapper.dataset.maxSizeMb || '300';
+            if (!(fileInput instanceof HTMLInputElement) || !(hiddenInput instanceof HTMLInputElement) || !status || !progressWrapper || !progressBar || !uploadUrl || !fieldName) {
+                return;
+            }
+
+            const clearVideo = () => {
+                hiddenInput.value = '';
+                if (previewWrapper) previewWrapper.classList.add('d-none');
+                if (preview instanceof HTMLVideoElement) {
+                    preview.removeAttribute('src');
+                    preview.load();
+                }
+                status.textContent = `Maksymalny rozmiar: ${maxSizeMb} MB.`;
+            };
+
+            if (removeCheckbox instanceof HTMLInputElement) {
+                removeCheckbox.addEventListener('change', () => {
+                    if (removeCheckbox.checked) {
+                        clearVideo();
+                    }
+                });
+            }
+
+            fileInput.addEventListener('change', async () => {
+                const file = fileInput.files && fileInput.files.length > 0 ? fileInput.files[0] : null;
+                if (!file) return;
+                if (activeVideoUploads > 0) {
+                    status.textContent = 'Trwa już upload filmu. Poczekaj na jego zakończenie.';
+                    return;
+                }
+                const chunkSize = 5 * 1024 * 1024;
+                const totalChunks = Math.ceil(file.size / chunkSize);
+                const uploadIdKey = `video-upload-${fieldName}-${file.name}-${file.size}`;
+                const uploadId = localStorage.getItem(uploadIdKey) || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                localStorage.setItem(uploadIdKey, uploadId);
+                let startChunk = Number(localStorage.getItem(`${uploadIdKey}-chunk`) || '0');
+                if (!Number.isFinite(startChunk) || startChunk < 0 || startChunk >= totalChunks) {
+                    startChunk = 0;
+                }
+                progressWrapper.classList.remove('d-none');
+                setModuleFormUploadingState(true);
+                status.textContent = 'Wgrywanie...';
+                const uploadedBytesAtStart = Math.min(file.size, startChunk * chunkSize);
+                const uploadStartedAt = performance.now();
+                let lastDisplayedPercent = -1;
+                let lastProgressRenderAt = 0;
+
+                const updateProgress = (uploadedBytes, force = false) => {
+                    const normalizedUploadedBytes = Math.max(0, Math.min(file.size, uploadedBytes));
+                    const percent = normalizedUploadedBytes >= file.size
+                        ? 100
+                        : Math.floor((normalizedUploadedBytes / file.size) * 100);
+                    const now = performance.now();
+                    if (!force && percent === lastDisplayedPercent && now - lastProgressRenderAt < 1000) {
+                        return;
+                    }
+
+                    lastDisplayedPercent = percent;
+                    lastProgressRenderAt = now;
+                    const elapsedSeconds = Math.max(0.001, (now - uploadStartedAt) / 1000);
+                    const uploadedSinceStart = Math.max(0, normalizedUploadedBytes - uploadedBytesAtStart);
+                    const speed = formatUploadSpeed(uploadedSinceStart / elapsedSeconds);
+                    progressBar.style.width = `${percent}%`;
+                    progressBar.textContent = `${percent}%`;
+                    progressBar.setAttribute('aria-valuenow', String(percent));
+                    status.textContent = speed
+                        ? `Wgrywanie... ${percent}% (${speed})`
+                        : `Wgrywanie... ${percent}%`;
+                };
+
+                updateProgress(uploadedBytesAtStart, true);
+
+                try {
+                    for (let chunkIndex = startChunk; chunkIndex < totalChunks; chunkIndex++) {
+                        const start = chunkIndex * chunkSize;
+                        const end = Math.min(file.size, start + chunkSize);
+                        const chunkBlob = file.slice(start, end);
+                        const formData = new FormData();
+                        formData.append('uploadId', uploadId);
+                        formData.append('chunkIndex', String(chunkIndex));
+                        formData.append('totalChunks', String(totalChunks));
+                        formData.append('originalName', file.name);
+                        formData.append('chunk', chunkBlob, file.name);
+
+                        let uploadResult;
+                        try {
+                            uploadResult = await uploadVideoChunk(uploadUrl, formData, (chunkUploadedBytes) => {
+                                updateProgress(start + chunkUploadedBytes);
+                            });
+                        } catch (error) {
+                            if (error && error.isUploadResponseError) {
+                                const rawPayload = String(error.rawPayload || '');
+                                const fallbackError = rawPayload.trim() !== ''
+                                    ? rawPayload.trim()
+                                    : `Błąd uploadu (${error.status}).`;
+                                status.textContent = error.payload.error || fallbackError;
+                                return;
+                            }
+                            throw error;
+                        }
+
+                        const payload = uploadResult.payload;
+                        updateProgress(end, true);
+                        if (chunkIndex === totalChunks - 1 && !payload.done) {
+                            status.textContent = 'Przetwarzanie filmu...';
+                        }
+
+                        if (payload.error) {
+                            status.textContent = payload.error;
+                            return;
+                        }
+                        localStorage.setItem(`${uploadIdKey}-chunk`, String(chunkIndex + 1));
+
+                        if (payload.done && payload.path) {
+                            hiddenInput.value = payload.path;
+                            if (previewWrapper) previewWrapper.classList.remove('d-none');
+                            if (preview instanceof HTMLVideoElement) {
+                                preview.src = payload.path;
+                                preview.load();
+                            }
+                            if (removeCheckbox instanceof HTMLInputElement) {
+                                removeCheckbox.checked = false;
+                            }
+                            status.innerHTML = `Upload zakończony. <a href="${payload.path}" target="_blank" rel="noopener noreferrer">Pobierz aktualny film</a>`;
+                            localStorage.removeItem(uploadIdKey);
+                            localStorage.removeItem(`${uploadIdKey}-chunk`);
+                        }
+                    }
+                } catch (error) {
+                    status.textContent = 'Nie udało się wysłać pliku. Sprawdź połączenie i spróbuj ponownie.';
+                } finally {
+                    setModuleFormUploadingState(false);
+                }
+            });
+        });
+
+    });
+</script>
+{% endblock %}

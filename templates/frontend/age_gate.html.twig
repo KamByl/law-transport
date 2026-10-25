@@ -1,0 +1,28 @@
+{% extends 'layout/base.html.twig' %}
+
+{% block stylesheets %}
+    <link rel="stylesheet" href="/media/css/zywiec.css?v=1.13">
+{% endblock %}
+
+{% block body %}
+<main class="age-gate">
+    <form class="age-card" method="post" action="/age-gate/confirm" data-age-gate data-target="{{ ageGateTarget|default('/loteria') }}" novalidate>
+        <div class="campaign-mark" aria-label="Przedłużenie lata">
+            <img src="media/img/home_bottles.png">
+        </div>
+        <p>Wprowadź swoją datę urodzenia, aby potwierdzić swój wiek.</p>
+        <div class="date-fields">
+            <input name="day" inputmode="numeric" maxlength="2" placeholder="DD" aria-label="Dzień urodzenia" required>
+            <input name="month" inputmode="numeric" maxlength="2" placeholder="MM" aria-label="Miesiąc urodzenia" required>
+            <input name="year" inputmode="numeric" maxlength="4" placeholder="RRRR" aria-label="Rok urodzenia" required>
+        </div>
+        <input type="hidden" name="target" value="{{ ageGateTarget|default('/loteria') }}">
+        <div class="age-error" aria-live="polite">{{ ageGateError|default('') }}</div>
+        <button class="button wide" type="submit">Potwierdź</button>
+    </form>
+</main>
+{% endblock %}
+
+{% block javascripts %}
+    <script src="/media/js/zywiec.js?v=1.8"></script>
+{% endblock %}

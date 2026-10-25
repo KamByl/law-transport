@@ -1,0 +1,141 @@
+{% extends 'layout/backend.html.twig' %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
+        <div>
+            <h1 class="h4 mb-1">Logi błędów</h1>
+            <p class="text-muted mb-0">Lista błędów aplikacji (np. 404, 405, 500).</p>
+        </div>
+        <form class="row g-2 align-items-center" method="get" action="/cms/error-logs">
+            <div class="col-12 col-md-auto">
+                <input type="text" name="q" class="form-control form-control-sm" placeholder="Szukaj po URL, treści, IP" value="{{ query }}">
+            </div>
+            <div class="col-12 col-md-auto">
+                <input type="text" name="email" class="form-control form-control-sm" placeholder="Szukaj tylko po adresie e-mail" value="{{ emailQuery|default('') }}">
+            </div>
+            <div class="col-12 col-md-auto">
+                <button class="btn btn-primary btn-sm" type="submit">Szukaj</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Kod</th>
+                            <th>Użytkownik</th>
+                            <th>Metoda</th>
+                            <th>URL</th>
+                            <th>IP</th>
+                            <th>Komunikat</th>
+                            <th class="text-end">Opcje</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in logs %}
+                            <tr>
+                                <td>{{ log.createdAt ? log.createdAt|date('Y-m-d H:i:s') : '' }}</td>
+                                <td>
+                                    <span class="badge {% if log.statusCode >= 500 %}bg-danger{% elseif log.statusCode >= 400 %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                                        {{ log.statusCode }}
+                                    </span>
+                                </td>
+                                <td>
+                                    {% if log.user %}
+                                        {{ log.user.firstName }} {{ log.user.lastName }}
+                                    {% else %}
+                                        <span class="text-muted">Gość</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ log.method|default('') }}</td>
+                                <td class="small">{{ log.url|default('') }}</td>
+                                <td>{{ log.ipAddress|default('') }}</td>
+                                <td>
+                                    <div class="small fw-semibold">{{ log.exceptionClass|default('Błąd aplikacji') }}</div>
+                                    <div class="small text-muted">{{ log.exceptionMessage|default('') }}</div>
+                                </td>
+                                <td class="text-end">
+                                    <button
+                                        class="btn btn-outline-secondary btn-sm"
+                                        type="button"
+                                        data-bs-toggle="collapse"
+                                        data-bs-target="#error-log-{{ log.id }}"
+                                        aria-expanded="false"
+                                        aria-controls="error-log-{{ log.id }}"
+                                    >
+                                        Więcej
+                                    </button>
+                                </td>
+                            </tr>
+                            <tr class="collapse" id="error-log-{{ log.id }}">
+                                <td colspan="8" class="bg-light">
+                                    <div class="p-2">
+                                        <h2 class="h6 mb-3">Szczegóły logu #{{ log.id }}</h2>
+                                        <div class="row g-3">
+                                            <div class="col-md-6">
+                                                <div class="small text-muted">Data</div>
+                                                <div>{{ log.createdAt ? log.createdAt|date('Y-m-d H:i:s') : '-' }}</div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="small text-muted">Kod statusu</div>
+                                                <div>{{ log.statusCode }}</div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="small text-muted">Użytkownik</div>
+                                                <div>
+                                                    {% if log.user %}
+                                                        #{{ log.user.id }} — {{ log.user.firstName }} {{ log.user.lastName }} ({{ log.user.email }})
+                                                    {% else %}
+                                                        Gość
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="small text-muted">IP</div>
+                                                <div>{{ log.ipAddress|default('-') }}</div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="small text-muted">Metoda</div>
+                                                <div>{{ log.method|default('-') }}</div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="small text-muted">URL</div>
+                                                <div class="text-break">{{ log.url|default('-') }}</div>
+                                            </div>
+                                            <div class="col-12">
+                                                <div class="small text-muted">Exception class</div>
+                                                <div class="text-break">{{ log.exceptionClass|default('-') }}</div>
+                                            </div>
+                                            <div class="col-12">
+                                                <div class="small text-muted">Exception message</div>
+                                                <pre class="mb-0 p-2 bg-white border rounded small text-wrap">{{ log.exceptionMessage|default('-') }}</pre>
+                                            </div>
+                                            <div class="col-12">
+                                                <div class="small text-muted">User-Agent</div>
+                                                <pre class="mb-0 p-2 bg-white border rounded small text-wrap">{{ log.userAgent|default('-') }}</pre>
+                                            </div>
+                                            <div class="col-12">
+                                                <div class="small text-muted">Trace</div>
+                                                <pre class="mb-0 p-2 bg-white border rounded small text-wrap">{{ log.stackTrace|default('-') }}</pre>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="8" class="text-center text-muted">Brak logów do wyświetlenia.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

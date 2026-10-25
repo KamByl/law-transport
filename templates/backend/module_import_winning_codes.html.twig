@@ -1,0 +1,48 @@
+{% extends 'layout/backend.html.twig' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="h3 mb-1">Dodaj nowe kody</h1>
+        <p class="text-muted mb-0">Zaimportuj kody z pliku XLS lub XLSX dla wybranej loterii.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ backUrl }}">Wróć do listy</a>
+</div>
+
+<div class="card p-4">
+    {% if errors is not empty %}
+        <div class="alert alert-danger">
+            <ul class="mb-0 ps-3">
+                {% for error in errors %}
+                    <li>{{ error }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data" class="row g-3">
+        {% include 'backend/_csrf_token.html.twig' %}
+
+        <div class="col-md-6">
+            <label class="form-label" for="import-loteria">Loteria</label>
+            <select class="form-select" id="import-loteria" name="loteria" required>
+                <option value="">Wybierz loterię</option>
+                {% for lotteryId, lotteryName in lotteryOptions %}
+                    <option value="{{ lotteryId }}" {% if values.loteria|default('') == lotteryId %}selected{% endif %}>{{ lotteryName }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="col-12">
+            <label class="form-label" for="codes-file">Plik z kodami</label>
+            <input class="form-control" type="file" id="codes-file" name="codes_file" accept=".xls,.xlsx" required>
+            <div class="form-text">System odczytuje z pliku wyłącznie kolumnę <strong>PickupCode</strong>.</div>
+        </div>
+
+        <div class="col-12 d-flex gap-2">
+            <button class="btn btn-primary" type="submit">Importuj kody</button>
+            <a class="btn btn-outline-secondary" href="{{ backUrl }}">Anuluj</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

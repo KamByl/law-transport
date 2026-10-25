@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="pl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    {% set siteTitle = siteSettings.site_name|default(appName|default('CMS2'))|trim %}
+    {% if siteTitle is empty %}
+        {% set siteTitle = appName|default('CMS2') %}
+    {% endif %}
+    {% set pageTitle = title|default('')|trim %}
+    {% set metaTitle = pageTitle is not empty ? pageTitle : siteTitle %}
+    {% set metaDescription = siteSettings.site_description|default('')|trim %}
+    {% set shareTitle = siteSettings.share_title|default('')|trim %}
+    {% set shareDescription = siteSettings.share_description|default('')|trim %}
+    {% set shareImage = siteSettings.share_image|default('')|trim %}
+    {% set favicon = siteSettings.favicon|default('')|trim %}
+    {% set cookieSettings = cookieManagerSettings|default({}) %}
+    {% set isAdmin = body_class|default('') == 'admin-body' %}
+    {% set cookieTestMode = cookieSettings.test_mode|default(false) ? true : false %}
+    {% set cookieSimpleBanner = cookieSettings.simple_banner|default(false) ? true : false %}
+    {% set cookieCanPreview = currentUser|default(null) is not empty %}
+    {% set cookieConsentEnabled = (not isAdmin) and cookieSettings.banner_enabled|default(false) and ((not cookieTestMode) or cookieCanPreview) %}
+    {% set cookiePolicyUrl = cookieSettings.privacy_policy_url|default('')|trim %}
+    {% set cookieTikTokConfig = {
+        pixel_ids: [
+            cookieSettings.tiktok_pixel_id|default(''),
+            cookieSettings.tiktok_pixel_id_secondary|default('')
+        ],
+        legacy_snippets: [
+            cookieSettings.tiktok_pixel_head|default(''),
+            cookieSettings.tiktok_pixel_head_secondary|default('')
+        ]
+    } %}
+    {% set shareImageAbsolute = '' %}
+    {% if shareImage is not empty %}
+        {% if shareImage starts with('http://') or shareImage starts with('https://') %}
+            {% set shareImageAbsolute = shareImage %}
+        {% elseif shareImage starts with('//') %}
+            {% set shareImageAbsolute = app.request ? app.request.scheme ~ ':' ~ shareImage : shareImage %}
+        {% else %}
+            {% set normalizedShareImage = shareImage starts with('/') ? shareImage : '/' ~ shareImage %}
+            {% set shareImageAbsolute = absolute_url(normalizedShareImage) %}
+        {% endif %}
+    {% endif %}
+    {% set faviconHref = '' %}
+    {% if favicon is not empty %}
+        {% if favicon starts with('http://') or favicon starts with('https://') or favicon starts with('//') %}
+            {% set faviconHref = favicon %}
+        {% else %}
+            {% set faviconHref = favicon starts with('/') ? favicon : '/' ~ favicon %}
+        {% endif %}
+    {% endif %}
+    {% set canonicalUrl = app.request ? app.request.uri : '' %}
+    <title>{{ metaTitle }}</title>
+    {% if metaDescription is not empty %}
+        <meta name="description" content="{{ metaDescription }}">
+    {% endif %}
+    {% if canonicalUrl is not empty %}
+        <link rel="canonical" href="{{ canonicalUrl }}">
+    {% endif %}
+    <meta property="og:type" content="website">
+    {% if siteTitle is not empty %}
+        <meta property="og:site_name" content="{{ siteTitle }}">
+    {% endif %}
+    <meta property="og:title" content="{{ shareTitle is not empty ? shareTitle : metaTitle }}">
+    {% if shareDescription is not empty or metaDescription is not empty %}
+        <meta property="og:description" content="{{ shareDescription is not empty ? shareDescription : metaDescription }}">
+    {% endif %}
+    {% if canonicalUrl is not empty %}
+        <meta property="og:url" content="{{ canonicalUrl }}">
+    {% endif %}
+    <meta name="twitter:title" content="{{ shareTitle is not empty ? shareTitle : metaTitle }}">
+    {% if shareDescription is not empty or metaDescription is not empty %}
+        <meta name="twitter:description" content="{{ shareDescription is not empty ? shareDescription : metaDescription }}">
+    {% endif %}
+    {% if shareImageAbsolute is not empty %}
+        <meta property="og:image" content="{{ shareImageAbsolute }}">
+        <meta name="twitter:image" content="{{ shareImageAbsolute }}">
+        <meta name="twitter:card" content="summary_large_image">
+    {% else %}
+        <meta name="twitter:card" content="summary">
+    {% endif %}
+    {% if faviconHref is not empty %}
+        <link rel="icon" href="{{ faviconHref }}">
+    {% endif %}
+    {% if isAdmin %}
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    {% endif %}
+    {% if isAdmin or (debugToolbar is defined and debugToolbar and debugToolbar.enabled) %}
+        <link href="/assets/css/app.css" rel="stylesheet">
+    {% endif %}
+    {% block stylesheets %}{% endblock %}
+</head>
+<body class="{{ body_class|default('') }}">
+{% if not isAdmin %}
+    <script type="application/json" id="cookieConsentConfig">{{ {
+        enabled: cookieConsentEnabled,
+        testMode: cookieTestMode,
+        simpleBanner: cookieSimpleBanner,
+        cookieName: 'zywiec_cookie_consent',
+        policyUrl: cookiePolicyUrl,
+        tiktok: cookieTikTokConfig
+    }|json_encode|raw }}</script>
+    {% if cookieConsentEnabled %}
+        {% set cookieTitle = cookieSettings.banner_title|default('')|trim %}
+        {% if cookieTitle is empty %}
+            {% set cookieTitle = 'Preferencje cookies' %}
+        {% endif %}
+        {% set cookieDescription = cookieSettings.banner_description|default('')|trim %}
+        {% set cookieDescriptionIsDefault = false %}
+        {% if cookieDescription is empty %}
+            {% set cookieDescriptionIsDefault = true %}
+            {% set cookieDescription = 'Na stronie Z ŻABKI AŻ NA BACKSTAGE używamy plików cookies niezbędnych do działania serwisu. Dodatkowo, za Twoją zgodą, możemy włączyć cookies biznesowe. Możesz je włączyć lub wyłączyć niżej.' %}
+        {% endif %}
+        {% set necessaryLabel = cookieSettings.necessary_label|default('')|trim %}
+        {% if necessaryLabel is empty %}
+            {% set necessaryLabel = 'Niezbędne' %}
+        {% endif %}
+        {% set necessaryDescription = cookieSettings.necessary_description|default('')|trim %}
+        {% if necessaryDescription is empty %}
+            {% set necessaryDescription = 'Te pliki są potrzebne do działania strony, utrzymania sesji, bezpieczeństwa formularzy i potwierdzenia pełnoletności.' %}
+            {% if recaptchaConfig.enabled|default(false) %}
+                {% set necessaryDescription = necessaryDescription ~ ' Gdy reCAPTCHA jest aktywna, Google może stosować niezbędne mechanizmy zabezpieczające formularze.' %}
+            {% endif %}
+        {% endif %}
+        {% set businessLabel = cookieSettings.business_label|default('')|trim %}
+        {% if businessLabel is empty %}
+            {% set businessLabel = 'Biznesowe (TikTok Pixel)' %}
+        {% endif %}
+        {% set businessDescription = cookieSettings.business_description|default('')|trim %}
+        {% if businessDescription is empty %}
+            {% set businessDescription = 'Pomagają nam mierzyć skuteczność kampanii, analizować ruch na stronie oraz dopasowywać treści reklamowe. TikTok może zapisywać m.in. cookies _ttp oraz _tt_enable_cookie przez ok. 13 miesięcy.' %}
+        {% endif %}
+        <div class="cookie-consent-backdrop" data-cookie-consent hidden>
+            <section class="cookie-consent-banner{% if cookieSimpleBanner %} is-simple{% endif %}" role="dialog" aria-modal="true" aria-labelledby="cookie-consent-title">
+                {% if cookieTestMode and not cookieSimpleBanner %}
+                    <div class="cookie-consent-test-label">Tryb testowy</div>
+                {% endif %}
+                <div class="cookie-consent-view" data-cookie-view="summary">
+                    <div class="cookie-consent-copy">
+                        <h2 id="cookie-consent-title">{{ cookieTitle }}</h2>
+                        {% if cookieDescriptionIsDefault %}
+                            <p>Na stronie <strong>„Z ŻABKI AŻ NA BACKSTAGE”</strong> używamy plików cookies niezbędnych do działania serwisu. Dodatkowo, za Twoją zgodą, możemy włączyć cookies biznesowe. Możesz je włączyć lub wyłączyć niżej.</p>
+                        {% else %}
+                            <p>{{ cookieDescription }}</p>
+                        {% endif %}
+                        {% if not cookieSimpleBanner and cookiePolicyUrl is not empty %}
+                            <a class="cookie-consent-link" href="{{ cookiePolicyUrl }}" target="_blank" rel="noopener">Polityka cookies</a>
+                        {% endif %}
+                    </div>
+                    <div class="cookie-consent-actions" aria-label="{{ cookieSimpleBanner ? 'Potwierdzenie informacji o cookies' : 'Decyzja dotycząca cookies' }}">
+                        {% if cookieSimpleBanner %}
+                            <button class="cookie-btn cookie-btn-primary" type="button" data-cookie-confirm>OK</button>
+                        {% else %}
+                            <button class="cookie-btn cookie-btn-danger" type="button" data-cookie-reject>Brak zgody</button>
+                            <button class="cookie-btn cookie-btn-secondary" type="button" data-cookie-customize>Dostosuj</button>
+                            <button class="cookie-btn cookie-btn-primary" type="button" data-cookie-accept>Zgoda</button>
+                        {% endif %}
+                    </div>
+                </div>
+                {% if not cookieSimpleBanner %}
+                <div class="cookie-consent-view" data-cookie-view="settings" hidden>
+                    <div class="cookie-consent-copy">
+                        <h2>Ustawienia prywatności</h2>
+                        <p>W każdej chwili możesz zmienić zgodę, korzystając z przycisku w prawym dolnym rogu strony.</p>
+                    </div>
+                    <div class="cookie-consent-options">
+                        <label class="cookie-consent-option is-required">
+                            <span>
+                                <strong>{{ necessaryLabel }}</strong>
+                                <small>{{ necessaryDescription }}</small>
+                            </span>
+                            <input type="checkbox" checked disabled>
+                        </label>
+                        <label class="cookie-consent-option">
+                            <span>
+                                <strong>{{ businessLabel }}</strong>
+                                <small>{{ businessDescription }}</small>
+                            </span>
+                            <input type="checkbox" data-cookie-business>
+                        </label>
+                    </div>
+                    <div class="cookie-consent-actions">
+                        <button class="cookie-btn cookie-btn-danger" type="button" data-cookie-reject>Brak zgody</button>
+                        <button class="cookie-btn cookie-btn-secondary" type="button" data-cookie-back>Wróć</button>
+                        <button class="cookie-btn cookie-btn-primary" type="button" data-cookie-save>Zapisz wybór</button>
+                    </div>
+                </div>
+                {% endif %}
+            </section>
+        </div>
+        {% if not cookieSimpleBanner %}
+        <button class="cookie-settings-toggle" type="button" data-cookie-open hidden aria-label="Zarządzaj ustawieniami cookies">
+            Cookies
+        </button>
+        {% endif %}
+    {% endif %}
+{% endif %}
+{% block body %}{% endblock %}
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+{% if not isAdmin %}
+<script>
+    (() => {
+        const configNode = document.getElementById('cookieConsentConfig');
+        if (!configNode) {
+            return;
+        }
+
+        let config = {};
+        try {
+            config = JSON.parse(configNode.textContent || '{}');
+        } catch (error) {
+            console.warn('Nie udało się odczytać konfiguracji cookies.', error);
+            return;
+        }
+
+        const injectHtml = (html, target = document.body) => {
+            if (!html || !target) {
+                return;
+            }
+            const template = document.createElement('template');
+            template.innerHTML = html.trim();
+            const fragment = template.content.cloneNode(true);
+            const scripts = Array.from(fragment.querySelectorAll('script'));
+            scripts.forEach((script) => {
+                const replacement = document.createElement('script');
+                Array.from(script.attributes).forEach((attr) => replacement.setAttribute(attr.name, attr.value));
+                replacement.textContent = script.textContent || '';
+                script.parentNode.replaceChild(replacement, script);
+            });
+            target.appendChild(fragment);
+        };
+
+        const tiktokConfig = config.tiktok || {};
+        let businessInjected = false;
+        let businessConsentGranted = false;
+        let activeTikTokPixelIds = [];
+
+        const normalizeTikTokPixelId = (value) => {
+            const pixelId = typeof value === 'string' ? value.trim() : '';
+            return /^[A-Za-z0-9_-]{5,100}$/.test(pixelId) ? pixelId : '';
+        };
+        const uniqueTikTokPixelIds = (values) => Array.from(new Set(
+            (Array.isArray(values) ? values : [])
+                .map(normalizeTikTokPixelId)
+                .filter(Boolean)
+        ));
+        const extractTikTokPixelIds = (snippets) => {
+            const pixelIds = [];
+            const loadPattern = /\bttq\s*\.\s*load\s*\(\s*(['"])([A-Za-z0-9_-]{5,100})\1/g;
+            (Array.isArray(snippets) ? snippets : []).forEach((snippet) => {
+                if (typeof snippet !== 'string') {
+                    return;
+                }
+                let match;
+                while ((match = loadPattern.exec(snippet)) !== null) {
+                    pixelIds.push(match[2]);
+                }
+                loadPattern.lastIndex = 0;
+            });
+            return uniqueTikTokPixelIds(pixelIds);
+        };
+        const ensureTikTokQueue = () => {
+            const objectName = 'ttq';
+            window.TiktokAnalyticsObject = objectName;
+            const ttq = window[objectName] = window[objectName] || [];
+            if (typeof ttq.load === 'function' && typeof ttq.instance === 'function') {
+                return ttq;
+            }
+
+            ttq.methods = [
+                'page', 'track', 'identify', 'instances', 'debug', 'on', 'off', 'once',
+                'ready', 'alias', 'group', 'enableCookie', 'disableCookie', 'holdConsent',
+                'revokeConsent', 'grantConsent'
+            ];
+            ttq.setAndDefer = (queue, method) => {
+                queue[method] = function (...args) {
+                    queue.push([method, ...args]);
+                };
+            };
+            ttq.methods.forEach((method) => ttq.setAndDefer(ttq, method));
+            ttq.instance = (pixelId) => {
+                const instance = ttq._i[pixelId] || [];
+                ttq.methods.forEach((method) => ttq.setAndDefer(instance, method));
+                return instance;
+            };
+            ttq.load = (pixelId, options) => {
+                const libraryUrl = 'https://analytics.tiktok.com/i18n/pixel/events.js';
+                ttq._i = ttq._i || {};
+                ttq._i[pixelId] = [];
+                ttq._i[pixelId]._u = libraryUrl;
+                ttq._t = ttq._t || {};
+                ttq._t[pixelId] = Date.now();
+                ttq._o = ttq._o || {};
+                ttq._o[pixelId] = options || {};
+
+                const script = document.createElement('script');
+                script.type = 'text/javascript';
+                script.async = true;
+                script.src = `${libraryUrl}?sdkid=${encodeURIComponent(pixelId)}&lib=${objectName}`;
+                const firstScript = document.getElementsByTagName('script')[0];
+                if (firstScript && firstScript.parentNode) {
+                    firstScript.parentNode.insertBefore(script, firstScript);
+                } else {
+                    document.head.appendChild(script);
+                }
+            };
+
+            return ttq;
+        };
+        const initializeTikTokPixels = (pixelIds) => {
+            const normalizedPixelIds = uniqueTikTokPixelIds(pixelIds);
+            if (normalizedPixelIds.length === 0) {
+                return false;
+            }
+            const ttq = ensureTikTokQueue();
+            activeTikTokPixelIds = normalizedPixelIds;
+            normalizedPixelIds.forEach((pixelId) => {
+                ttq.load(pixelId);
+                ttq.instance(pixelId).page();
+            });
+            return true;
+        };
+        const getActiveTikTokInstances = () => {
+            if (!window.ttq || typeof window.ttq.instance !== 'function') {
+                return [];
+            }
+            return activeTikTokPixelIds
+                .map((pixelId) => window.ttq.instance(pixelId))
+                .filter(Boolean);
+        };
+        window.zywiecTikTokCanTrack = () => (
+            businessConsentGranted
+            && window.ttq
+            && (
+                typeof window.ttq.track === 'function'
+                || getActiveTikTokInstances().some((instance) => typeof instance.track === 'function')
+            )
+        );
+        window.zywiecTikTokTrack = (eventName, properties = {}) => {
+            if (!window.zywiecTikTokCanTrack() || typeof eventName !== 'string' || eventName.trim() === '') {
+                return false;
+            }
+            try {
+                const instances = getActiveTikTokInstances()
+                    .filter((instance) => typeof instance.track === 'function');
+                if (instances.length > 0) {
+                    instances.forEach((instance) => instance.track(eventName, properties));
+                } else {
+                    window.ttq.track(eventName, properties);
+                }
+                return true;
+            } catch (error) {
+                console.warn('Nie udało się wysłać zdarzenia TikTok Pixel.', error);
+                return false;
+            }
+        };
+        const injectBusinessSnippets = () => {
+            if (businessInjected) {
+                return;
+            }
+            businessInjected = true;
+            const configuredPixelIds = uniqueTikTokPixelIds(tiktokConfig.pixel_ids);
+            if (configuredPixelIds.length > 0) {
+                initializeTikTokPixels(configuredPixelIds);
+                return;
+            }
+
+            const legacySnippets = (Array.isArray(tiktokConfig.legacy_snippets)
+                ? tiktokConfig.legacy_snippets
+                : [])
+                .filter((snippet) => typeof snippet === 'string' && snippet.trim() !== '');
+            if (legacySnippets.length === 1) {
+                activeTikTokPixelIds = extractTikTokPixelIds(legacySnippets);
+                injectHtml(legacySnippets[0], document.head);
+                return;
+            }
+            if (legacySnippets.length > 1) {
+                initializeTikTokPixels(extractTikTokPixelIds(legacySnippets));
+            }
+        };
+        const revokeBusinessConsent = () => {
+            const tiktokQueue = window.ttq;
+            if (!tiktokQueue) {
+                return;
+            }
+            try {
+                if (typeof tiktokQueue.disableCookie === 'function') {
+                    tiktokQueue.disableCookie();
+                }
+                if (typeof tiktokQueue.revokeConsent === 'function') {
+                    tiktokQueue.revokeConsent();
+                }
+            } catch (error) {
+                console.warn('Nie udało się wycofać zgody TikTok Pixel.', error);
+            }
+        };
+
+        if (!config.enabled) {
+            return;
+        }
+
+        const banner = document.querySelector('[data-cookie-consent]');
+        const settingsButton = document.querySelector('[data-cookie-open]');
+        const businessInput = document.querySelector('[data-cookie-business]');
+        const cookieName = config.cookieName || 'zywiec_cookie_consent';
+        const testMode = Boolean(config.testMode);
+        const simpleBanner = Boolean(config.simpleBanner);
+        const cookieMaxAge = 60 * 60 * 24 * 365;
+        let currentConsent = null;
+
+        const readConsent = () => {
+            if (testMode) {
+                return null;
+            }
+            const cookie = document.cookie
+                .split('; ')
+                .find((item) => item.startsWith(`${cookieName}=`));
+            if (!cookie) {
+                return null;
+            }
+            try {
+                const value = decodeURIComponent(cookie.slice(cookieName.length + 1));
+                const parsed = JSON.parse(value);
+                return parsed && typeof parsed === 'object' ? parsed : null;
+            } catch (error) {
+                return null;
+            }
+        };
+
+        const writeConsent = (consent) => {
+            currentConsent = {
+                necessary: true,
+                business: Boolean(consent.business),
+                updatedAt: new Date().toISOString(),
+            };
+            if (testMode) {
+                return;
+            }
+            const value = encodeURIComponent(JSON.stringify(currentConsent));
+            document.cookie = `${cookieName}=${value}; Max-Age=${cookieMaxAge}; Path=/; SameSite=Lax`;
+        };
+
+        const showView = (view) => {
+            if (!banner) {
+                return;
+            }
+            banner.querySelectorAll('[data-cookie-view]').forEach((node) => {
+                node.hidden = node.dataset.cookieView !== view;
+            });
+            if (businessInput) {
+                businessInput.checked = Boolean(currentConsent && currentConsent.business);
+            }
+        };
+
+        const openBanner = (view = 'summary') => {
+            if (!banner) {
+                return;
+            }
+            showView(view);
+            banner.hidden = false;
+            document.body.classList.add('cookie-consent-visible');
+        };
+
+        const closeBanner = () => {
+            if (banner) {
+                banner.hidden = true;
+            }
+            document.body.classList.remove('cookie-consent-visible');
+            if (settingsButton && !simpleBanner) {
+                settingsButton.hidden = false;
+            }
+        };
+
+        const applyConsent = (consent) => {
+            currentConsent = consent || { necessary: true, business: false };
+            businessConsentGranted = Boolean(currentConsent.business);
+            if (currentConsent.business) {
+                injectBusinessSnippets();
+            } else {
+                revokeBusinessConsent();
+            }
+            closeBanner();
+        };
+
+        document.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof Element)) {
+                return;
+            }
+
+            if (target.closest('[data-cookie-open]')) {
+                openBanner('settings');
+                return;
+            }
+            if (target.closest('[data-cookie-customize]')) {
+                showView('settings');
+                return;
+            }
+            if (target.closest('[data-cookie-back]')) {
+                showView('summary');
+                return;
+            }
+            if (target.closest('[data-cookie-reject]')) {
+                writeConsent({ business: false });
+                applyConsent(currentConsent);
+                return;
+            }
+            if (target.closest('[data-cookie-confirm]')) {
+                writeConsent({ business: false });
+                applyConsent(currentConsent);
+                return;
+            }
+            if (target.closest('[data-cookie-accept]')) {
+                writeConsent({ business: true });
+                applyConsent(currentConsent);
+                return;
+            }
+            if (target.closest('[data-cookie-save]')) {
+                writeConsent({ business: Boolean(businessInput && businessInput.checked) });
+                applyConsent(currentConsent);
+            }
+        });
+
+        const storedConsent = readConsent();
+        if (storedConsent) {
+            if (simpleBanner) {
+                writeConsent({ business: false });
+                applyConsent(currentConsent);
+            } else {
+                applyConsent(storedConsent);
+            }
+            return;
+        }
+
+        openBanner('summary');
+    })();
+</script>
+{% endif %}
+{% include 'layout/_debug_toolbar.html.twig' %}
+{% block javascripts %}{% endblock %}
+</body>
+</html>

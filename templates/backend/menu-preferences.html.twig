@@ -1,0 +1,168 @@
+{% extends 'layout/backend.html.twig' %}
+
+{% block content %}
+<h1 class="h3 mb-4">Ustawienia lewego menu</h1>
+<p class="text-muted">Przenoś moduły między grupami metodą drag&amp;drop. Możesz dodawać i usuwać własne grupy.</p>
+<form method="post" action="/cms/menu/preferences/update">
+    {% include 'backend/_csrf_token.html.twig' %}
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h5 mb-0">Grupy modułów</h2>
+        <button type="button" class="btn btn-outline-primary btn-sm" data-add-group>Dodaj grupę</button>
+    </div>
+
+    <div class="row g-3" data-groups-board>
+        {% for label in menuGroupLabels|default([]) %}
+            <div class="col-12" data-group-card draggable="true">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center gap-2">
+                        <strong>{{ label }}</strong>
+                        <button type="button" class="btn btn-outline-danger btn-sm" data-remove-group>Usuń</button>
+                        <input type="hidden" name="menu_groups[]" value="{{ label }}">
+                    </div>
+                    <div class="card-body" data-group-items="{{ label }}" style="min-height: 80px;"></div>
+                </div>
+            </div>
+        {% endfor %}
+
+        <div class="col-12" data-group-card draggable="true">
+            <div class="card h-100 border-secondary">
+                <div class="card-header"><strong>Bez grupy</strong></div>
+                <div class="card-body" data-group-items="" style="min-height: 80px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-4" data-module-pool>
+        {% for key, module in modules %}
+            {% set pref = menuPreferences[key]|default({'enabled': true, 'order': loop.index, 'group': ''}) %}
+            <div class="list-group-item d-flex justify-content-between align-items-center gap-2 mb-2" draggable="true" data-module-item data-key="{{ key }}" data-group="{{ pref.group|default('') }}">
+                <span><i class="bi bi-grip-vertical me-2 text-muted"></i>{{ module.label|default(key) }}</span>
+                <span class="d-flex align-items-center gap-2">
+                    <label class="form-check-label small">Widoczne</label>
+                    <input class="form-check-input" type="checkbox" name="menu_settings[{{ key }}][enabled]" {% if pref.enabled %}checked{% endif %}>
+                </span>
+                <input type="hidden" name="menu_settings[{{ key }}][order]" value="{{ pref.order|default(loop.index) }}">
+                <input type="hidden" name="menu_settings[{{ key }}][group]" value="{{ pref.group|default('') }}" data-group-input>
+            </div>
+        {% endfor %}
+    </div>
+
+    <div class="d-flex flex-wrap gap-2 mt-3">
+        <button class="btn btn-primary btn-sm" type="submit">Zapisz ustawienia</button>
+        <button class="btn btn-outline-secondary btn-sm" type="submit" formaction="/cms/menu/preferences/reset" formmethod="post">Przywróć ustawienia domyślne</button>
+    </div>
+</form>
+
+<script>
+(() => {
+    const board = document.querySelector('[data-groups-board]');
+    const pool = document.querySelector('[data-module-pool]');
+    const addGroupButton = document.querySelector('[data-add-group]');
+    let draggedModule = null;
+    let draggedGroup = null;
+
+    const updateOrderInputs = () => {
+        let order = 1;
+        board.querySelectorAll('[data-group-items]').forEach((container) => {
+            container.querySelectorAll('[data-module-item]').forEach((module) => {
+                const orderInput = module.querySelector('input[name*="[order]"]');
+                const groupInput = module.querySelector('[data-group-input]');
+                if (orderInput) orderInput.value = order++;
+                if (groupInput) groupInput.value = container.dataset.groupItems || '';
+            });
+        });
+    };
+
+    const attachDropZone = (container) => {
+        container.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            if (!draggedModule) return;
+            const target = event.target.closest('[data-module-item]');
+            if (!target || target.parentElement !== container) {
+                container.appendChild(draggedModule);
+                return;
+            }
+            const rect = target.getBoundingClientRect();
+            const after = event.clientY > rect.top + rect.height / 2;
+            container.insertBefore(draggedModule, after ? target.nextSibling : target);
+        });
+        container.addEventListener('drop', (event) => {
+            event.preventDefault();
+            updateOrderInputs();
+        });
+    };
+
+    const attachModuleDnD = (module) => {
+        module.addEventListener('dragstart', () => { draggedModule = module; module.classList.add('table-active'); });
+        module.addEventListener('dragend', () => { module.classList.remove('table-active'); draggedModule = null; updateOrderInputs(); });
+    };
+
+    const attachGroupDnD = (card) => {
+        card.addEventListener('dragstart', (event) => {
+            if (event.target.closest('[data-module-item]')) return;
+            draggedGroup = card;
+        });
+        card.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            if (!draggedGroup || draggedGroup === card) return;
+            const rect = card.getBoundingClientRect();
+            const after = event.clientY > rect.top + rect.height / 2;
+            board.insertBefore(draggedGroup, after ? card.nextSibling : card);
+        });
+        card.addEventListener('drop', (event) => {
+            event.preventDefault();
+            draggedGroup = null;
+            updateOrderInputs();
+        });
+    };
+
+    const attachRemoveGroup = (card) => {
+        const button = card.querySelector('[data-remove-group]');
+        if (!button) return;
+        button.addEventListener('click', () => {
+            const ungrouped = board.querySelector('[data-group-items=""]');
+            card.querySelectorAll('[data-module-item]').forEach((item) => ungrouped.appendChild(item));
+            card.remove();
+            updateOrderInputs();
+        });
+    };
+
+    addGroupButton.addEventListener('click', () => {
+        const label = window.prompt('Nazwa nowej grupy:');
+        if (!label || !label.trim()) return;
+        const clean = label.trim();
+        const card = document.createElement('div');
+        card.className = 'col-12';
+        card.setAttribute('data-group-card', '');
+        card.setAttribute('draggable', 'true');
+        card.innerHTML = `
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center gap-2">
+                    <strong></strong>
+                    <button type="button" class="btn btn-outline-danger btn-sm" data-remove-group>Usuń</button>
+                    <input type="hidden" name="menu_groups[]">
+                </div>
+                <div class="card-body" data-group-items style="min-height: 80px;"></div>
+            </div>`;
+        card.querySelector('strong').textContent = clean;
+        card.querySelector('input[name="menu_groups[]"]').value = clean;
+        card.querySelector('[data-group-items]').dataset.groupItems = clean;
+        board.insertBefore(card, board.lastElementChild);
+        attachGroupDnD(card);
+        attachDropZone(card.querySelector('[data-group-items]'));
+        attachRemoveGroup(card);
+        updateOrderInputs();
+    });
+
+    board.querySelectorAll('[data-group-items]').forEach(attachDropZone);
+    board.querySelectorAll('[data-group-card]').forEach((card) => { attachGroupDnD(card); attachRemoveGroup(card); });
+    pool.querySelectorAll('[data-module-item]').forEach((item) => {
+        const group = item.dataset.group || '';
+        const target = board.querySelector(`[data-group-items="${CSS.escape(group)}"]`) || board.querySelector('[data-group-items=""]');
+        target.appendChild(item);
+        attachModuleDnD(item);
+    });
+    updateOrderInputs();
+})();
+</script>
+{% endblock %}

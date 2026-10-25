@@ -1,0 +1,1018 @@
+{% extends 'layout/backend.html.twig' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="h3 mb-1">{{ module.label|default(moduleKey) }}</h1>
+        <p class="text-muted mb-0">Zarządzaj wpisami modułu.</p>
+    </div>
+    {% if canCreate %}
+        <div class="d-flex gap-2">
+            {% if moduleKey in ['lista_wygranych_kodow'] %}
+                <a class="btn btn-outline-primary" href="/cms/modules/{{ moduleKey }}/import-winning-codes">Dodaj nowe kody</a>
+            {% endif %}
+            {% if moduleKey == 'zwyciezcy' %}
+                <a class="btn btn-outline-primary" href="/cms/modules/{{ moduleKey }}/import-winners-csv">Dodaj wielu zwycięzców</a>
+                <a class="btn btn-outline-secondary" href="/cms/modules/{{ moduleKey }}/import-winners-csv#historia-importow">Logi importu</a>
+            {% endif %}
+            <a class="btn btn-primary" href="/cms/modules/{{ moduleKey }}/create">Dodaj wpis</a>
+        </div>
+    {% endif %}
+</div>
+
+<div class="card p-4">
+    {% if alert %}
+        <div class="alert alert-{{ alert.type }} mb-3">{{ alert.message }}</div>
+    {% endif %}
+    {% if moduleKey == 'zwyciezcy' and winnerPostCreateQueueSummary is not null %}
+        {% set remainingWinners = winnerPostCreateQueueSummary.remaining|default(0) %}
+        <div class="alert {{ remainingWinners > 0 ? 'alert-info' : 'alert-success' }} mb-3" role="status">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <strong>Przetwarzanie zwycięzców</strong>
+                <span>Do przetworzenia:</span>
+                <span class="badge text-bg-primary">{{ remainingWinners }}</span>
+                <span class="text-muted">(oczekuje: {{ winnerPostCreateQueueSummary.pending|default(0) }}, w trakcie: {{ winnerPostCreateQueueSummary.processing|default(0) }})</span>
+                {% if winnerPostCreateQueueSummary.failed|default(0) > 0 %}
+                    <span class="badge text-bg-danger">Błędy: {{ winnerPostCreateQueueSummary.failed }}</span>
+                {% endif %}
+            </div>
+            <div class="small mt-1">Kody nagród i wiadomości e-mail są obsługiwane przez kolejkę CRON.</div>
+        </div>
+    {% endif %}
+    <form class="row g-2 align-items-center mb-3" method="get" action="/cms/modules/{{ moduleKey }}">
+        <div class="col-sm-6 col-md-4">
+            <input class="form-control" type="search" name="q" value="{{ query }}" placeholder="Szukaj wpisu">
+        </div>
+        {% if configuredFilters is defined and configuredFilters is not empty %}
+            {% for filterName, filterConfig in configuredFilters %}
+                <div class="col-sm-6 col-md-3">
+                    {% if filterConfig.multiple|default(false) %}
+                        {% set selectedValues = selectedFilters[filterName]|default([]) %}
+                        <details class="multi-filter" data-multi-filter>
+                            <summary class="multi-filter-summary">
+                                <span>{{ filterConfig.label }}</span>
+                                {% if selectedValues is not empty %}
+                                    <span class="badge text-bg-primary rounded-pill">{{ selectedValues|length }}</span>
+                                {% endif %}
+                            </summary>
+                            <div class="multi-filter-options">
+                                {% for optionValue, optionLabel in filterConfig.options %}
+                                    <label class="form-check multi-filter-option">
+                                        <input class="form-check-input" type="checkbox" name="{{ filterName }}[]" value="{{ optionValue }}" {% if optionValue in selectedValues %}checked{% endif %}>
+                                        <span class="form-check-label">{{ optionLabel }}</span>
+                                    </label>
+                                {% endfor %}
+                            </div>
+                        </details>
+                    {% elseif filterConfig.type in ['date', 'datetime'] %}
+                        {% set selectedFrom = selectedFilters[filterName].from|default('') %}
+                        {% set selectedTo = selectedFilters[filterName].to|default('') %}
+                        {% set isDatetimeFilter = filterConfig.type == 'datetime' %}
+                        {% set selectedFromInputValue = isDatetimeFilter ? selectedFrom|replace({' ': 'T'})|slice(0, 16) : selectedFrom %}
+                        {% set selectedToInputValue = isDatetimeFilter ? selectedTo|replace({' ': 'T'})|slice(0, 16) : selectedTo %}
+                        {% set dateFiltersCount = 0 %}
+                        {% if selectedFrom is not empty %}
+                            {% set dateFiltersCount = dateFiltersCount + 1 %}
+                        {% endif %}
+                        {% if selectedTo is not empty %}
+                            {% set dateFiltersCount = dateFiltersCount + 1 %}
+                        {% endif %}
+                        <details class="multi-filter" data-multi-filter>
+                            <summary class="multi-filter-summary">
+                                <span>{{ filterConfig.label }}</span>
+                                {% if dateFiltersCount > 0 %}
+                                    <span class="badge text-bg-primary rounded-pill">{{ dateFiltersCount }}</span>
+                                {% endif %}
+                            </summary>
+                            <div class="multi-filter-options p-2">
+                                <label class="small text-muted mb-1" for="{{ filterName }}_from">Od</label>
+                                <input id="{{ filterName }}_from" class="form-control form-control-sm mb-2" type="{{ isDatetimeFilter ? 'datetime-local' : 'date' }}" name="{{ filterName }}_from" value="{{ selectedFromInputValue }}">
+                                <label class="small text-muted mb-1" for="{{ filterName }}_to">Do</label>
+                                <input id="{{ filterName }}_to" class="form-control form-control-sm" type="{{ isDatetimeFilter ? 'datetime-local' : 'date' }}" name="{{ filterName }}_to" value="{{ selectedToInputValue }}">
+                            </div>
+                        </details>
+                    {% else %}
+                        <select class="form-select" name="{{ filterName }}">
+                            <option value="">{{ filterConfig.label }}</option>
+                            {% for optionValue, optionLabel in filterConfig.options %}
+                                <option value="{{ optionValue }}" {% if selectedFilters[filterName]|default('') == optionValue %}selected{% endif %}>{{ optionLabel }}</option>
+                            {% endfor %}
+                        </select>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        {% endif %}
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="dir" value="{{ dir }}">
+        <input type="hidden" name="page" value="1">
+        <input type="hidden" name="list_columns" value="{{ columns|join(',') }}" data-columns-input>
+        <input type="hidden" name="list_order" value="{{ columns|join(',') }}" data-columns-order-input>
+        <input type="hidden" name="list_labels" value="{{ columnLabels|json_encode|e('html_attr') }}" data-columns-labels-input>
+        <input type="hidden" name="list_filters" value="{{ activeFilterNames|join(',') }}" data-filters-input>
+        <input type="hidden" name="list_filter_labels" value="{{ filterLabels|json_encode|e('html_attr') }}" data-filter-labels-input>
+        <div class="col-auto">
+            <button class="btn btn-outline-primary" type="submit">Szukaj</button>
+        </div>
+        {% set hasActiveFilters = query or (selectedFilters is defined and selectedFilters is not empty) %}
+        {% if hasActiveFilters %}
+            <div class="col-auto">
+                <a class="btn btn-outline-secondary" href="/cms/modules/{{ moduleKey }}?reset_filters=1">Wyczyść</a>
+            </div>
+        {% endif %}
+        <div class="col-auto ms-auto">
+            <div class="d-flex align-items-center gap-3">
+                <button class="btn btn-outline-secondary btn-sm" type="button" data-columns-settings-open>
+                    <i class="bi bi-sliders me-1"></i> Ustawienia
+                </button>
+                {% if canCreate and moduleKey != 'zwyciezcy' %}
+                    <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#csvImportModal">Import CSV</button>
+                {% endif %}
+                <span class="text-muted small">
+                    Łącznie elementów: <strong>{{ totalAllRows }}</strong>
+                </span>
+                <div class="d-flex align-items-center gap-2">
+                    <label class="text-muted small" for="per-page-select">Na stronie</label>
+                    <select id="per-page-select" class="form-select form-select-sm w-auto" name="perPage" onchange="this.form.submit()">
+                        {% for option in perPageOptions %}
+                            <option value="{{ option }}" {% if option == perPage %}selected{% endif %}>{{ option }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+        </div>
+    </form>
+    <form class="d-flex flex-wrap justify-content-end align-items-center gap-2 mb-3" method="get" action="/cms/modules/{{ moduleKey }}/export" data-export-form>
+        <input type="hidden" name="q" value="{{ query }}">
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="dir" value="{{ dir }}">
+        <input type="hidden" name="list_labels" value="{{ columnLabels|json_encode|e('html_attr') }}">
+        {% if selectedFilters is defined and selectedFilters is not empty %}
+            {% for filterName, filterValue in selectedFilters %}
+                {% if configuredFilters[filterName].multiple|default(false) %}
+                    {% for item in filterValue %}
+                        <input type="hidden" name="{{ filterName }}[]" value="{{ item }}">
+                    {% endfor %}
+                {% elseif configuredFilters[filterName].type|default('') in ['date', 'datetime'] %}
+                    <input type="hidden" name="{{ filterName }}_from" value="{{ filterValue.from|default('') }}">
+                    <input type="hidden" name="{{ filterName }}_to" value="{{ filterValue.to|default('') }}">
+                {% else %}
+                    <input type="hidden" name="{{ filterName }}" value="{{ filterValue }}">
+                {% endif %}
+            {% endfor %}
+        {% endif %}
+        <label class="text-muted small" for="export-format">Eksportuj dane</label>
+        <select id="export-format" name="format" class="form-select form-select-sm w-auto">
+            <option value="csv">CSV</option>
+            <option value="xlsx">Excel</option>
+            <option value="pdf">PDF</option>
+        </select>
+        <input type="hidden" name="ids" value="" data-export-selected-ids>
+        <button class="btn btn-outline-secondary btn-sm" type="submit" data-export-submit-button>Pobierz</button>
+    </form>
+    {% if moduleKey in ['lista_wygranych_kodow', 'kody_graficzne'] and winningCodesUsageSummary is defined and winningCodesUsageSummary is not empty %}
+        <div class="table-responsive mb-3">
+            <table class="table table-sm table-bordered align-middle">
+                <thead>
+                    <tr>
+                        <th>Wartość kodu</th>
+                        <th class="text-end">Wykorzystane</th>
+                        <th class="text-end">Niewykorzystane</th>
+                        <th class="text-end">Wszystkie</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for usageSummaryRow in winningCodesUsageSummary %}
+                        <tr>
+                            <td>{{ usageSummaryRow.wartosc_kodu }}</td>
+                            <td class="text-end">{{ usageSummaryRow.wykorzystane }}</td>
+                            <td class="text-end">{{ usageSummaryRow.niewykorzystane }}</td>
+                            <td class="text-end fw-semibold">{{ usageSummaryRow.wszystkie }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+    {% if canEdit and extraActions %}
+        {% if moduleKey == 'zwyciezcy' and winnerFormReminder is not null %}
+            <div class="border rounded bg-light p-3 mb-3">
+                <div class="d-flex flex-wrap align-items-end justify-content-between gap-3">
+                    <div>
+                        <div class="fw-semibold">Przypomnienie o formularzu zwycięzcy</div>
+                        <div class="text-muted small">
+                            Osoby z aktywnym i niewypełnionym formularzem:
+                            <strong>{{ winnerFormReminder.recipient_count }}</strong>
+                            · wiadomości do wysłania: <strong>{{ winnerFormReminder.count }}</strong>
+                            {% if winnerFormReminder.active_until %}
+                                · formularze aktywne do końca dnia {{ winnerFormReminder.active_until|date('d.m.Y') }}
+                            {% elseif winnerFormReminder.validity_days > 0 %}
+                                · ważność: {{ winnerFormReminder.validity_days }} dni od pierwszego maila
+                            {% else %}
+                                · brak ustawionego terminu ważności
+                            {% endif %}
+                        </div>
+                    </div>
+                    <form
+                        method="post"
+                        action="/cms/modules/{{ moduleKey }}/extra-action/send_pending_winner_form_reminders"
+                        class="d-flex flex-wrap align-items-end gap-2"
+                        onsubmit="return confirm('Czy wysłać {{ winnerFormReminder.count }} wiadomości do {{ winnerFormReminder.recipient_count }} osób?');"
+                    >
+                        {% include 'backend/_csrf_token.html.twig' %}
+                        <div>
+                            <label class="form-label small mb-1" for="winner-form-reminder-template">Szablon e-mail</label>
+                            <select
+                                class="form-select form-select-sm"
+                                id="winner-form-reminder-template"
+                                name="email_template_id"
+                                required
+                                {% if winnerFormReminder.count == 0 or winnerFormReminder.templates is empty %}disabled{% endif %}
+                            >
+                                <option value="">Wybierz szablon</option>
+                                {% for templateId, templateName in winnerFormReminder.templates %}
+                                    <option value="{{ templateId }}">{{ templateName }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <button
+                            class="btn btn-outline-primary btn-sm"
+                            type="submit"
+                            {% if winnerFormReminder.count == 0 or winnerFormReminder.templates is empty %}disabled{% endif %}
+                        >
+                            Wyślij przypomnienie
+                        </button>
+                    </form>
+                </div>
+                {% if winnerFormReminder.templates is empty %}
+                    <div class="text-danger small mt-2">Brak dostępnych szablonów e-mail.</div>
+                {% endif %}
+            </div>
+        {% endif %}
+        <div class="d-flex flex-wrap justify-content-end gap-2 mb-3">
+            {% if moduleKey == 'zwyciezcy' and pendingWinnerPrizesCount is not null %}
+                <span class="badge text-bg-light border text-start">
+                    Zaległe zgłoszenia: {{ pendingWinnerPrizesCount }}
+                </span>
+            {% endif %}
+            {% for extraActionItem in extraActions %}
+                {% if extraActionItem.key != 'send_pending_winner_form_reminders' %}
+                    <form method="post" action="/cms/modules/{{ moduleKey }}/extra-action/{{ extraActionItem.key }}" class="d-inline"{% if extraActionItem.confirm is defined %} onsubmit="return confirm('{{ extraActionItem.confirm|e('js') }}');"{% endif %}>
+                        {% include 'backend/_csrf_token.html.twig' %}
+                        <button class="btn btn-outline-secondary btn-sm" type="submit">{{ extraActionItem.label }}</button>
+                    </form>
+                {% endif %}
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    {% set listQueryBase = '' %}
+{% if query %}
+    {% set listQueryBase = listQueryBase ~ 'q=' ~ query|url_encode ~ '&' %}
+{% endif %}
+{% if selectedFilters is defined and selectedFilters is not empty %}
+    {% for filterName, filterValue in selectedFilters %}
+        {% if configuredFilters[filterName].multiple|default(false) %}
+            {% for item in filterValue %}
+                {% set listQueryBase = listQueryBase ~ filterName|url_encode ~ '[]=' ~ item|url_encode ~ '&' %}
+            {% endfor %}
+        {% elseif configuredFilters[filterName].type|default('') in ['date', 'datetime'] %}
+            {% if filterValue.from|default('') is not empty %}
+                {% set listQueryBase = listQueryBase ~ (filterName ~ '_from')|url_encode ~ '=' ~ filterValue.from|url_encode ~ '&' %}
+            {% endif %}
+            {% if filterValue.to|default('') is not empty %}
+                {% set listQueryBase = listQueryBase ~ (filterName ~ '_to')|url_encode ~ '=' ~ filterValue.to|url_encode ~ '&' %}
+            {% endif %}
+        {% else %}
+            {% set listQueryBase = listQueryBase ~ filterName|url_encode ~ '=' ~ filterValue|url_encode ~ '&' %}
+        {% endif %}
+    {% endfor %}
+{% endif %}
+    {% set listQueryBase = listQueryBase ~ 'perPage=' ~ perPage ~ '&' %}
+    {% set listQueryBase = listQueryBase ~ 'list_columns=' ~ (columns|join(',')|url_encode) ~ '&' %}
+    {% set listQueryBase = listQueryBase ~ 'list_order=' ~ (columns|join(',')|url_encode) ~ '&' %}
+    {% set listQueryBase = listQueryBase ~ 'list_labels=' ~ (columnLabels|json_encode|url_encode) ~ '&' %}
+    {% set listQueryBase = listQueryBase ~ 'list_filters=' ~ (activeFilterNames|join(',')|url_encode) ~ '&' %}
+    {% set listQueryBase = listQueryBase ~ 'list_filter_labels=' ~ (filterLabels|json_encode|url_encode) ~ '&' %}
+    {% set queryPrefix = '?' ~ listQueryBase ~ 'page=1&' %}
+    <form method="post" action="/cms/modules/{{ moduleKey }}/bulk-delete" data-bulk-actions-form id="bulk-delete-form-{{ moduleKey }}">
+        {% include 'backend/_csrf_token.html.twig' %}
+    </form>
+        <table class="table table-hover align-middle" {% if manualSort and canEdit %}data-reorder-url="/cms/modules/{{ moduleKey }}/reorder"{% endif %}>
+        <thead>
+            <tr>
+                {% if canDelete and module.type|default('list')|lower == 'list' %}
+                    <th class="text-center" style="width: 1%;">
+                        <input class="form-check-input" type="checkbox" data-bulk-select-all aria-label="Zaznacz wszystkie">
+                    </th>
+                {% endif %}
+                {% for column in columns %}
+                    <th>
+                        {% if manualSort %}
+                            {{ columnLabels[column]|default(column|replace({'_': ' '})|title) }}
+                        {% else %}
+                            {% set nextDir = sort == column and dir == 'asc' ? 'desc' : 'asc' %}
+                            <a href="{{ queryPrefix }}sort={{ column }}&dir={{ nextDir }}" class="text-decoration-none sort-link">
+                                <span>{{ columnLabels[column]|default(column|replace({'_': ' '})|title) }}</span>
+                                {% if sort == column %}
+                                    <span class="sort-indicator" aria-hidden="true">
+                                        <i class="bi {{ dir == 'asc' ? 'bi-arrow-up' : 'bi-arrow-down' }}"></i>
+                                    </span>
+                                {% endif %}
+                            </a>
+                        {% endif %}
+                    </th>
+                {% endfor %}
+                {% if manualSort and canEdit %}
+                    <th class="text-center">Kolejność</th>
+                {% endif %}
+                {% if canView or canEdit or canDelete %}
+                    <th class="text-end">Akcje</th>
+                {% endif %}
+            </tr>
+        </thead>
+        <tbody {% if manualSort and canEdit %}data-sortable-body{% endif %}>
+            {% for row in rows %}
+                <tr {% if manualSort and canEdit %}class="sortable-row" data-sort-id="{{ row[primaryKey] }}"{% endif %}>
+                    {% if canDelete and module.type|default('list')|lower == 'list' %}
+                        <td class="text-center">
+                            <input class="form-check-input" type="checkbox" name="ids[]" value="{{ row[primaryKey] }}" data-bulk-item aria-label="Zaznacz element" form="bulk-delete-form-{{ moduleKey }}">
+                        </td>
+                    {% endif %}
+                    {% for column in columns %}
+                        {% set columnType = columnTypes[column]|default('') %}
+                        {% set columnValue = row[column]|default(null) %}
+                        <td>
+                            {% if columnType in ['boolean_select', 'boolean', 'checkbox'] %}
+                                {% if columnValue %}
+                                    {% if column == 'suspicious' %}
+                                        <span class="text-warning" title="Podejrzane">
+                                            <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+                                        </span>
+                                        <span class="visually-hidden">Podejrzane</span>
+                                    {% else %}
+                                        <span class="text-success" title="Tak">
+                                            <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
+                                        </span>
+                                        <span class="visually-hidden">Tak</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="text-muted" title="Nie">
+                                        <i class="bi bi-dash-circle" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="visually-hidden">Nie</span>
+                                {% endif %}
+                            {% elseif columnType == 'datetime' %}
+                                {{ columnValue is not empty ? columnValue|date('Y-m-d H:i:s') : '-' }}
+                            {% elseif columnType == 'date' %}
+                                {{ columnValue is not empty ? columnValue|date('Y-m-d') : '-' }}
+                            {% elseif columnType == 'select' %}
+                                {% set selectOptions = selectFieldOptions[column]|default({}) %}
+                                {{ columnValue is not empty ? selectOptions[columnValue]|default(columnValue) : '-' }}
+                            {% elseif columnType == 'image' %}
+                                {% if columnValue is not empty %}
+                                    <a href="{{ columnValue }}" target="_blank" rel="noopener noreferrer" class="d-inline-block" aria-label="Otwórz zdjęcie: {{ columnLabels[column]|default(column|replace({'_': ' '})|title) }}">
+                                        <img class="img-thumbnail" src="{{ columnValue }}" alt="Miniaturka {{ columnLabels[column]|default(column|replace({'_': ' '})|title) }}" style="width: 72px; height: 72px; object-fit: cover;">
+                                    </a>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            {% else %}
+                                {{ columnValue is not empty ? columnValue : '-' }}
+                            {% endif %}
+                        </td>
+                    {% endfor %}
+                    {% if manualSort and canEdit %}
+                        <td class="text-center">
+                            <div class="d-inline-flex align-items-center gap-2" role="group" aria-label="Ustaw kolejność">
+                                <button class="btn btn-outline-secondary btn-sm drag-handle" type="button" draggable="true" aria-label="Przeciągnij, aby zmienić kolejność">
+                                    <i class="bi bi-grip-vertical"></i>
+                                </button>
+                                {% if loop.first %}
+                                    <button class="btn btn-outline-secondary btn-sm" type="button" disabled aria-label="Przesuń w górę">
+                                        <i class="bi bi-arrow-up"></i>
+                                    </button>
+                                {% else %}
+                                    <form method="post" action="/cms/modules/{{ moduleKey }}/{{ row[primaryKey] }}/move/up" class="d-inline">
+                                        {% include 'backend/_csrf_token.html.twig' %}
+                                        <button class="btn btn-outline-secondary btn-sm" type="submit" title="Przesuń w górę">
+                                            <i class="bi bi-arrow-up"></i>
+                                        </button>
+                                    </form>
+                                {% endif %}
+                                {% if loop.last %}
+                                    <button class="btn btn-outline-secondary btn-sm" type="button" disabled aria-label="Przesuń w dół">
+                                        <i class="bi bi-arrow-down"></i>
+                                    </button>
+                                {% else %}
+                                    <form method="post" action="/cms/modules/{{ moduleKey }}/{{ row[primaryKey] }}/move/down" class="d-inline">
+                                        {% include 'backend/_csrf_token.html.twig' %}
+                                        <button class="btn btn-outline-secondary btn-sm" type="submit" title="Przesuń w dół">
+                                            <i class="bi bi-arrow-down"></i>
+                                        </button>
+                                    </form>
+                                {% endif %}
+                            </div>
+                        </td>
+                    {% endif %}
+                    {% if canView or canEdit or canDelete %}
+                        <td class="text-end">
+                            {% if canEdit and extraRowActions is defined and extraRowActions is not empty %}
+                                {% for action in extraRowActions %}
+                                    <form method="post" action="/cms/modules/{{ moduleKey }}/{{ row[primaryKey] }}/extra-action" class="d-inline"{% if action.confirm is defined %} onsubmit="return confirm('{{ action.confirm|e('js') }}');"{% endif %}>
+                                        {% include 'backend/_csrf_token.html.twig' %}
+                                        <button class="btn btn-sm btn-outline-secondary" type="submit" name="action_key" value="{{ action.key }}">{{ action.label }}</button>
+                                    </form>
+                                {% endfor %}
+                            {% endif %}
+                            {% if canView %}
+                                <a class="btn btn-sm btn-outline-secondary module-action-button" href="/cms/modules/{{ moduleKey }}/{{ row[primaryKey] }}/view" title="Podgląd" aria-label="Podgląd">
+                                    <i class="bi bi-eye" aria-hidden="true"></i>
+                                </a>
+                            {% endif %}
+                            {% if canEdit %}
+                                <a class="btn btn-sm btn-outline-primary module-action-button" href="/cms/modules/{{ moduleKey }}/{{ row[primaryKey] }}/edit" title="Edytuj" aria-label="Edytuj">
+                                    <i class="bi bi-pencil" aria-hidden="true"></i>
+                                </a>
+                                {% if canCreate and module.type|default('list')|lower == 'list' %}
+                                    <a class="btn btn-sm btn-outline-secondary module-action-button" href="/cms/modules/{{ moduleKey }}/create?duplicateId={{ row[primaryKey] }}" title="Dodaj podobny" aria-label="Dodaj podobny">
+                                        <i class="bi bi-copy" aria-hidden="true"></i>
+                                    </a>
+                                {% endif %}
+                            {% endif %}
+                            {% if canDelete %}
+                                <form method="post" action="/cms/modules/{{ moduleKey }}/{{ row[primaryKey] }}/delete" class="d-inline" onsubmit="return handleModuleDeleteSubmit(this);" data-module-delete-form="true">
+                                    {% include 'backend/_csrf_token.html.twig' %}
+                                    <input type="hidden" name="delete_related_lottery_items" value="0" data-delete-related-input="true">
+                                    <button class="btn btn-sm btn-outline-danger module-action-button" type="submit" title="Usuń" aria-label="Usuń">
+                                        <i class="bi bi-trash" aria-hidden="true"></i>
+                                    </button>
+                                </form>
+                            {% endif %}
+                        </td>
+                    {% endif %}
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="{{ columns|length + (manualSort and canEdit ? 1 : 0) + (canView or canEdit or canDelete ? 1 : 0) + (canDelete and module.type|default('list')|lower == 'list' ? 1 : 0) }}" class="text-center text-muted">Brak danych do wyświetlenia.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+        </table>
+        {% if canDelete and module.type|default('list')|lower == 'list' %}
+            <div class="d-none mt-3 border rounded p-3 bg-light" data-bulk-actions-panel>
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    <span class="small text-muted">Zaznaczone elementy: <strong data-bulk-selected-count>0</strong></span>
+                    <button class="btn btn-danger btn-sm" type="submit" data-bulk-delete-button disabled onclick="return confirm('Czy na pewno chcesz usunąć zaznaczone elementy?');" form="bulk-delete-form-{{ moduleKey }}">
+                        Usuń zaznaczone
+                    </button>
+                </div>
+            </div>
+        {% endif %}
+    {% if manualSort and canEdit %}
+        <div class="text-muted small mt-2" data-sort-status>
+            Przeciągnij wiersz, aby zmienić kolejność. Zmiany zapisują się automatycznie.
+        </div>
+    {% endif %}
+</div>
+<div class="modal fade" id="columns-settings-modal" tabindex="-1" aria-hidden="true" data-columns-settings-modal>
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5">Ustawienia kolumn</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+            </div>
+            <div class="modal-body">
+                <h3 class="h6">Kolumny</h3>
+                <ul class="list-group" data-columns-settings-list>
+                    {% for column in settingsColumns %}
+                        <li class="list-group-item d-flex align-items-center justify-content-between gap-2" data-column-item="{{ column }}" draggable="true">
+                            <div class="form-check flex-grow-1">
+                                <input class="form-check-input" type="checkbox" value="{{ column }}" id="column-{{ loop.index }}" {% if column in columns %}checked{% endif %}>
+                                <label class="form-check-label" for="column-{{ loop.index }}" data-column-label>{{ columnLabels[column]|default(column|replace({'_': ' '})|title) }}</label>
+                            </div>
+                            <div class="btn-group btn-group-sm">
+                                <button type="button" class="btn btn-outline-secondary" data-edit-label title="Edytuj nazwę kolumny"><i class="bi bi-pencil"></i></button>
+                                <button type="button" class="btn btn-outline-secondary" data-move-up><i class="bi bi-arrow-up"></i></button>
+                                <button type="button" class="btn btn-outline-secondary" data-move-down><i class="bi bi-arrow-down"></i></button>
+                            </div>
+                        </li>
+                    {% endfor %}
+                </ul>
+                <hr>
+                <h3 class="h6">Filtry</h3>
+                <div class="list-group" data-filters-settings-list>
+                    {% for filterName in availableFilterNames %}
+                        <div class="list-group-item d-flex align-items-center justify-content-between gap-2" data-filter-item="{{ filterName }}" draggable="true">
+                            <label class="d-flex align-items-center gap-2 flex-grow-1 mb-0">
+                                <input class="form-check-input me-1" type="checkbox" value="{{ filterName }}" {% if filterName in activeFilterNames %}checked{% endif %}>
+                                <span data-filter-label>{{ filterLabels[filterName]|default(filterName|replace({'_': ' '})|title) }}</span>
+                            </label>
+                            <div class="btn-group btn-group-sm">
+                                <button type="button" class="btn btn-outline-secondary" data-edit-filter-label title="Edytuj nazwę filtra"><i class="bi bi-pencil"></i></button>
+                                <button type="button" class="btn btn-outline-secondary" data-filter-move-up><i class="bi bi-arrow-up"></i></button>
+                                <button type="button" class="btn btn-outline-secondary" data-filter-move-down><i class="bi bi-arrow-down"></i></button>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-columns-settings-reset>Przywróć domyślne ustawienia</button>
+                <button type="button" class="btn btn-primary" data-columns-settings-apply>Zastosuj</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% set paginationQuery = listQueryBase ~ 'sort=' ~ sort ~ '&dir=' ~ dir %}
+{% if totalPages > 1 %}
+    {% set paginationWindow = 2 %}
+    {% set startCandidate = page - paginationWindow %}
+    {% set endCandidate = page + paginationWindow %}
+    {% set startPage = startCandidate > 1 ? startCandidate : 1 %}
+    {% set endPage = endCandidate < totalPages ? endCandidate : totalPages %}
+    <nav class="mt-3" aria-label="Paginacja">
+        <ul class="pagination justify-content-center flex-wrap mb-0">
+            <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+                <a class="page-link" href="?{{ paginationQuery }}&page={{ page - 1 }}" tabindex="-1" aria-disabled="{{ page <= 1 ? 'true' : 'false' }}">Poprzednia</a>
+            </li>
+            {% if startPage > 1 %}
+                <li class="page-item"><a class="page-link" href="?{{ paginationQuery }}&page=1">1</a></li>
+                {% if startPage > 2 %}
+                    <li class="page-item disabled"><span class="page-link">…</span></li>
+                {% endif %}
+            {% endif %}
+            {% for p in startPage..endPage %}
+                <li class="page-item {% if p == page %}active{% endif %}">
+                    <a class="page-link" href="?{{ paginationQuery }}&page={{ p }}">{{ p }}</a>
+                </li>
+            {% endfor %}
+            {% if endPage < totalPages %}
+                {% if endPage < totalPages - 1 %}
+                    <li class="page-item disabled"><span class="page-link">…</span></li>
+                {% endif %}
+                <li class="page-item"><a class="page-link" href="?{{ paginationQuery }}&page={{ totalPages }}">{{ totalPages }}</a></li>
+            {% endif %}
+            <li class="page-item {% if page >= totalPages %}disabled{% endif %}">
+                <a class="page-link" href="?{{ paginationQuery }}&page={{ page + 1 }}" aria-disabled="{{ page >= totalPages ? 'true' : 'false' }}">Następna</a>
+            </li>
+        </ul>
+    </nav>
+{% endif %}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const openButton = document.querySelector('[data-columns-settings-open]');
+        const modalElement = document.querySelector('[data-columns-settings-modal]');
+        const list = document.querySelector('[data-columns-settings-list]');
+        const columnsInput = document.querySelector('[data-columns-input]');
+        const columnsOrderInput = document.querySelector('[data-columns-order-input]');
+        const columnsLabelsInput = document.querySelector('[data-columns-labels-input]');
+        const filtersInput = document.querySelector('[data-filters-input]');
+        const filterLabelsInput = document.querySelector('[data-filter-labels-input]');
+        const filtersList = document.querySelector('[data-filters-settings-list]');
+        if (!openButton || !modalElement || !list || !columnsInput || !columnsOrderInput || !columnsLabelsInput || !filtersInput || !filterLabelsInput || !filtersList || typeof bootstrap === 'undefined') return;
+        const modal = new bootstrap.Modal(modalElement);
+        let draggingItem = null;
+        let draggingFilterItem = null;
+        const serialize = () => {
+            const items = Array.from(list.querySelectorAll('[data-column-item]'));
+            return {
+                order: items.map((item) => item.dataset.columnItem).filter(Boolean),
+                selected: items.filter((item) => item.querySelector('input')?.checked).map((item) => item.dataset.columnItem).filter(Boolean),
+            };
+        };
+        openButton.addEventListener('click', () => modal.show());
+        list.addEventListener('click', (event) => {
+            const item = event.target.closest('[data-column-item]');
+            if (!item) return;
+            if (event.target.closest('[data-edit-label]')) {
+                const checkbox = item.querySelector('input[type="checkbox"]');
+                const labelElement = item.querySelector('[data-column-label]');
+                if (!checkbox || !labelElement) return;
+                const currentLabel = labelElement.textContent?.trim() || '';
+                const nextLabel = window.prompt('Podaj nazwę kolumny:', currentLabel);
+                if (nextLabel === null) return;
+                const normalizedLabel = nextLabel.trim();
+                if (normalizedLabel !== '') labelElement.textContent = normalizedLabel;
+                return;
+            }
+            if (event.target.closest('[data-move-up]') && item.previousElementSibling) item.parentNode.insertBefore(item, item.previousElementSibling);
+            if (event.target.closest('[data-move-down]') && item.nextElementSibling) item.parentNode.insertBefore(item.nextElementSibling, item);
+        });
+        list.addEventListener('dragstart', (event) => { draggingItem = event.target.closest('[data-column-item]'); });
+        list.addEventListener('dragover', (event) => {
+            if (!draggingItem) return;
+            event.preventDefault();
+            const target = event.target.closest('[data-column-item]');
+            if (!target || target === draggingItem) return;
+            const rect = target.getBoundingClientRect();
+            list.insertBefore(draggingItem, event.clientY > rect.top + rect.height / 2 ? target.nextSibling : target);
+        });
+        list.addEventListener('dragend', () => { draggingItem = null; });
+        filtersList.addEventListener('click', (event) => {
+            const item = event.target.closest('[data-filter-item]');
+            if (!item) return;
+            if (event.target.closest('[data-edit-filter-label]')) {
+                const labelElement = item.querySelector('[data-filter-label]');
+                if (!labelElement) return;
+                const currentLabel = labelElement.textContent?.trim() || '';
+                const nextLabel = window.prompt('Podaj nazwę filtra:', currentLabel);
+                if (nextLabel === null) return;
+                const normalizedLabel = nextLabel.trim();
+                if (normalizedLabel !== '') labelElement.textContent = normalizedLabel;
+                return;
+            }
+            if (event.target.closest('[data-filter-move-up]') && item.previousElementSibling) item.parentNode.insertBefore(item, item.previousElementSibling);
+            if (event.target.closest('[data-filter-move-down]') && item.nextElementSibling) item.parentNode.insertBefore(item.nextElementSibling, item);
+        });
+        filtersList.addEventListener('dragstart', (event) => { draggingFilterItem = event.target.closest('[data-filter-item]'); });
+        filtersList.addEventListener('dragover', (event) => {
+            if (!draggingFilterItem) return;
+            event.preventDefault();
+            const target = event.target.closest('[data-filter-item]');
+            if (!target || target === draggingFilterItem) return;
+            const rect = target.getBoundingClientRect();
+            filtersList.insertBefore(draggingFilterItem, event.clientY > rect.top + rect.height / 2 ? target.nextSibling : target);
+        });
+        filtersList.addEventListener('dragend', () => { draggingFilterItem = null; });
+        const defaultColumns = {{ defaultColumns|json_encode|raw }};
+        const defaultColumnLabels = {{ defaultColumnLabels|json_encode|raw }};
+        const defaultFilterLabels = {{ defaultFilterLabels|json_encode|raw }};
+        document.querySelector('[data-columns-settings-reset]')?.addEventListener('click', () => {
+            list.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+                input.checked = defaultColumns.includes(input.value);
+            });
+            const itemsByColumn = new Map(Array.from(list.querySelectorAll('[data-column-item]')).map((item) => [item.dataset.columnItem, item]));
+            const fragment = document.createDocumentFragment();
+            defaultColumns.forEach((column) => {
+                const item = itemsByColumn.get(column);
+                if (item) {
+                    fragment.appendChild(item);
+                    itemsByColumn.delete(column);
+                }
+            });
+            itemsByColumn.forEach((item) => fragment.appendChild(item));
+            list.appendChild(fragment);
+            list.querySelectorAll('[data-column-item]').forEach((item) => {
+                const columnName = item.dataset.columnItem;
+                const labelElement = item.querySelector('[data-column-label]');
+                if (!columnName || !labelElement) return;
+                const fallbackLabel = columnName
+                    .split('_')
+                    .filter((part) => part !== '')
+                    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+                    .join(' ');
+                labelElement.textContent = (defaultColumnLabels[columnName] || '').trim() || fallbackLabel;
+            });
+            const defaultFilters = {{ defaultActiveFilterNames|default(activeFilterNames)|json_encode|raw }};
+            const defaultFilterOrder = {{ availableFilterNames|json_encode|raw }};
+            const filterItemsByName = new Map(Array.from(filtersList.querySelectorAll('[data-filter-item]')).map((item) => [item.dataset.filterItem, item]));
+            const filterFragment = document.createDocumentFragment();
+            defaultFilterOrder.forEach((filterName) => {
+                const item = filterItemsByName.get(filterName);
+                if (item) {
+                    filterFragment.appendChild(item);
+                    filterItemsByName.delete(filterName);
+                }
+            });
+            filterItemsByName.forEach((item) => filterFragment.appendChild(item));
+            filtersList.appendChild(filterFragment);
+            filtersList.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+                input.checked = defaultFilters.includes(input.value);
+            });
+            filtersList.querySelectorAll('[data-filter-item]').forEach((item) => {
+                const filterName = item.dataset.filterItem;
+                const labelElement = item.querySelector('[data-filter-label]');
+                if (!filterName || !labelElement) return;
+                const fallbackLabel = filterName
+                    .split('_')
+                    .filter((part) => part !== '')
+                    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+                    .join(' ');
+                labelElement.textContent = (defaultFilterLabels[filterName] || '').trim() || fallbackLabel;
+            });
+        });
+        document.querySelector('[data-columns-settings-apply]')?.addEventListener('click', () => {
+            const data = serialize();
+            columnsInput.value = data.selected.join(',');
+            columnsOrderInput.value = data.order.join(',');
+            const labels = {};
+            list.querySelectorAll('[data-column-item]').forEach((item) => {
+                const columnName = item.dataset.columnItem;
+                const labelElement = item.querySelector('[data-column-label]');
+                if (!columnName || !labelElement) return;
+                labels[columnName] = (labelElement.textContent || '').trim();
+            });
+            columnsLabelsInput.value = JSON.stringify(labels);
+            const selectedFilters = Array.from(filtersList.querySelectorAll('input[type="checkbox"]:checked')).map((input) => input.value);
+            filtersInput.value = selectedFilters.join(',');
+            const filterLabels = {};
+            filtersList.querySelectorAll('[data-filter-item]').forEach((item) => {
+                const filterName = item.dataset.filterItem;
+                const labelElement = item.querySelector('[data-filter-label]');
+                if (!filterName || !labelElement) return;
+                filterLabels[filterName] = (labelElement.textContent || '').trim();
+            });
+            filterLabelsInput.value = JSON.stringify(filterLabels);
+            columnsInput.form?.submit();
+        });
+    });
+</script>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const form = document.querySelector('[data-bulk-actions-form]');
+        const selectAll = document.querySelector('[data-bulk-select-all]');
+        const itemCheckboxes = Array.from(document.querySelectorAll('[data-bulk-item]'));
+        const panel = document.querySelector('[data-bulk-actions-panel]');
+        const selectedCount = document.querySelector('[data-bulk-selected-count]');
+        const deleteButton = document.querySelector('[data-bulk-delete-button]');
+        const exportSelectedIdsInput = document.querySelector('[data-export-selected-ids]');
+        const exportSubmitButton = document.querySelector('[data-export-submit-button]');
+
+        if (!form || !selectAll || itemCheckboxes.length === 0 || !panel || !selectedCount || !deleteButton) return;
+
+        const refreshState = () => {
+            const checkedItems = itemCheckboxes.filter((input) => input.checked);
+            const checkedCount = checkedItems.length;
+            selectedCount.textContent = String(checkedCount);
+            panel.classList.toggle('d-none', checkedCount === 0);
+            deleteButton.disabled = checkedCount === 0;
+            selectAll.checked = checkedCount > 0 && checkedCount === itemCheckboxes.length;
+            selectAll.indeterminate = checkedCount > 0 && checkedCount < itemCheckboxes.length;
+            if (exportSelectedIdsInput) {
+                exportSelectedIdsInput.value = checkedItems.map((input) => input.value).join(',');
+            }
+            if (exportSubmitButton) {
+                exportSubmitButton.textContent = checkedCount > 0 ? 'Pobierz zaznaczone' : 'Pobierz';
+            }
+        };
+
+        selectAll.addEventListener('change', () => {
+            itemCheckboxes.forEach((input) => {
+                input.checked = selectAll.checked;
+            });
+            refreshState();
+        });
+
+        itemCheckboxes.forEach((input) => {
+            input.addEventListener('change', refreshState);
+        });
+
+        refreshState();
+    });
+</script>
+{% if canCreate and moduleKey != 'zwyciezcy' %}
+<div class="modal fade" id="csvImportModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form method="post" action="/cms/modules/{{ moduleKey }}/import-csv" enctype="multipart/form-data" id="csv-import-form">
+                {% include 'backend/_csrf_token.html.twig' %}
+                <input type="hidden" name="mapping" id="csv-import-mapping">
+                <input type="hidden" name="defaults" id="csv-import-defaults">
+                <div class="modal-header"><h5 class="modal-title">Import CSV</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Plik CSV</label>
+                        <input type="file" name="csv_file" id="csv-import-file" class="form-control" accept=".csv,text/csv" required>
+                    </div>
+                    <div id="csv-import-mapping-wrap" class="d-none">
+                        <p class="small text-muted">Przypisz kolumny CSV do pól systemowych lub ustaw stałe wartości.</p>
+                        <div id="csv-import-mapping-table"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Anuluj</button>
+                    <button type="submit" class="btn btn-primary">Importuj dane</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+<script>
+(() => {
+    const fileInput = document.getElementById('csv-import-file');
+    const wrap = document.getElementById('csv-import-mapping-wrap');
+    const container = document.getElementById('csv-import-mapping-table');
+    if (!fileInput || !wrap || !container) return;
+    const fields = {{ importableFields|default([])|json_encode|raw }};
+    const mappingInput = document.getElementById('csv-import-mapping');
+    const defaultsInput = document.getElementById('csv-import-defaults');
+
+    const parseCsvLine = (line, delimiter) => {
+        const values = [];
+        let current = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < line.length; i += 1) {
+            const char = line[i];
+
+            if (char === '"') {
+                if (inQuotes && line[i + 1] === '"') {
+                    current += '"';
+                    i += 1;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+                continue;
+            }
+
+            if (char === delimiter && !inQuotes) {
+                values.push(current);
+                current = '';
+                continue;
+            }
+
+            current += char;
+        }
+
+        values.push(current);
+        return values;
+    };
+
+    const countDelimiterOutsideQuotes = (line, delimiter) => {
+        let count = 0;
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i += 1) {
+            const char = line[i];
+            if (char === '"') {
+                if (inQuotes && line[i + 1] === '"') {
+                    i += 1;
+                    continue;
+                }
+                inQuotes = !inQuotes;
+                continue;
+            }
+            if (char === delimiter && !inQuotes) {
+                count += 1;
+            }
+        }
+        return count;
+    };
+
+    fileInput.addEventListener('change', async () => {
+        const file = fileInput.files?.[0];
+        if (!file) return;
+        const text = await file.text();
+        const headerLine = (text.split(/\r?\n/).find((line) => line.trim() !== '') || '');
+        const semicolonCount = countDelimiterOutsideQuotes(headerLine, ';');
+        const commaCount = countDelimiterOutsideQuotes(headerLine, ',');
+        const delimiter = semicolonCount >= commaCount ? ';' : ',';
+        const headers = parseCsvLine(headerLine, delimiter)
+            .map((item, index) => {
+                const normalized = item.replace(/^﻿/, '').trim();
+                return index === 0 ? normalized.replace(/^ï»¿/, '') : normalized;
+            })
+            .filter((item) => item !== '');
+        const rows = fields.map((field) => {
+            const options = ['<option value="">-- nie mapuj --</option>', ...headers.map((header) => `<option value="${header}">${header}</option>`)].join('');
+            return `<tr><td>${field.label || field.name}</td><td><select class="form-select form-select-sm" data-map="${field.name}">${options}</select></td><td><input class="form-control form-control-sm" type="text" data-default="${field.name}" placeholder="Wartość domyślna"></td></tr>`;
+        }).join('');
+        container.innerHTML = `<div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Pole systemowe</th><th>Kolumna CSV</th><th>Stała wartość</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+        wrap.classList.remove('d-none');
+    });
+    document.getElementById('csv-import-form')?.addEventListener('submit', () => {
+        const mapping = {};
+        const defaults = {};
+        container.querySelectorAll('[data-map]').forEach((el) => mapping[el.dataset.map] = el.value);
+        container.querySelectorAll('[data-default]').forEach((el) => defaults[el.dataset.default] = el.value);
+        mappingInput.value = JSON.stringify(mapping);
+        defaultsInput.value = JSON.stringify(defaults);
+    });
+})();
+</script>
+{% if manualSort and canEdit %}
+    <script>
+        (() => {
+            const table = document.querySelector('table[data-reorder-url]');
+            const tableBody = document.querySelector('[data-sortable-body]');
+            const status = document.querySelector('[data-sort-status]');
+            if (!table || !tableBody) {
+                return;
+            }
+
+            let draggingRow = null;
+
+            const setStatus = (message, tone = 'muted') => {
+                if (!status) {
+                    return;
+                }
+                status.textContent = message;
+                status.classList.remove('text-muted', 'text-danger', 'text-success');
+                status.classList.add(`text-${tone}`);
+            };
+
+            const getIds = () => Array.from(tableBody.querySelectorAll('tr[data-sort-id]'))
+                .map((row) => Number.parseInt(row.dataset.sortId || '', 10))
+                .filter(Number.isFinite);
+
+            const saveOrder = async () => {
+                const ids = getIds();
+                if (!ids.length) {
+                    return;
+                }
+                setStatus('Zapisywanie kolejności...', 'muted');
+                try {
+                    const response = await fetch(table.dataset.reorderUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-CSRF-Token': adminCsrfToken,
+                        },
+                        body: JSON.stringify({ ids }),
+                    });
+                    if (!response.ok) {
+                        throw new Error('Request failed');
+                    }
+                    setStatus('Kolejność zapisana.', 'success');
+                } catch (error) {
+                    setStatus('Nie udało się zapisać kolejności. Spróbuj ponownie.', 'danger');
+                }
+            };
+
+            tableBody.addEventListener('dragstart', (event) => {
+                const handle = event.target.closest('.drag-handle');
+                if (!handle) {
+                    event.preventDefault();
+                    return;
+                }
+                const row = handle.closest('tr[data-sort-id]');
+                if (!row) {
+                    return;
+                }
+                draggingRow = row;
+                row.classList.add('is-dragging');
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('text/plain', row.dataset.sortId || '');
+            });
+
+            tableBody.addEventListener('dragover', (event) => {
+                if (!draggingRow) {
+                    return;
+                }
+                event.preventDefault();
+                const targetRow = event.target.closest('tr[data-sort-id]');
+                if (!targetRow || targetRow === draggingRow) {
+                    return;
+                }
+                const rect = targetRow.getBoundingClientRect();
+                const shouldInsertAfter = event.clientY - rect.top > rect.height / 2;
+                tableBody.insertBefore(draggingRow, shouldInsertAfter ? targetRow.nextSibling : targetRow);
+            });
+
+            tableBody.addEventListener('dragend', () => {
+                if (!draggingRow) {
+                    return;
+                }
+                draggingRow.classList.remove('is-dragging');
+                draggingRow = null;
+            });
+
+            tableBody.addEventListener('drop', (event) => {
+                if (!draggingRow) {
+                    return;
+                }
+                event.preventDefault();
+                saveOrder();
+            });
+        })();
+    </script>
+{% endif %}
+
+<style>
+.multi-filter { position: relative; }
+.multi-filter-summary { list-style: none; border: 1px solid #ced4da; border-radius: .375rem; padding: .375rem .75rem; min-height: calc(1.5em + .75rem + 2px); display:flex; align-items:center; justify-content:space-between; cursor:pointer; background:#fff; }
+.multi-filter-summary::-webkit-details-marker { display: none; }
+.multi-filter-options { position:absolute; z-index:50; left:0; right:0; background:#fff; border:1px solid #ced4da; border-radius:.375rem; margin-top:.25rem; max-height:220px; overflow:auto; padding:.5rem .75rem; box-shadow:0 .5rem 1rem rgba(0,0,0,.15); }
+.multi-filter-option { margin-bottom:.35rem; }
+</style>
+<script>
+document.addEventListener('click', (event) => {
+  document.querySelectorAll('[data-multi-filter]').forEach((el) => {
+    if (!el.contains(event.target)) { el.removeAttribute('open'); }
+  });
+});
+
+    function handleModuleDeleteSubmit(form) {
+        if (!confirm('Czy na pewno chcesz usunąć ten wpis?')) {
+            return false;
+        }
+
+        const relatedInput = form.querySelector('[data-delete-related-input="true"]');
+        if (relatedInput) {
+            relatedInput.value = '0';
+        }
+
+        if ('{{ moduleKey }}' === 'loteria_zgloszenia') {
+            const shouldDeleteRelated = confirm('Czy chcesz usunąć także powiązane losy i zdrapki?');
+            if (relatedInput) {
+                relatedInput.value = shouldDeleteRelated ? '1' : '0';
+            }
+        }
+
+        return true;
+    }
+
+</script>
+
+{% endblock %}

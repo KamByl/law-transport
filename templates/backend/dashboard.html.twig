@@ -1,0 +1,401 @@
+{% extends 'layout/backend.html.twig' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="h3 mb-1">Dashboard</h1>
+        <p class="text-muted mb-0">Wybierz moduł do zarządzania zawartością.</p>
+    </div>
+    <a class="btn btn-primary" href="/cms/dashboard/preferences">Układ dashboardu</a>
+</div>
+<div class="row g-3">
+    {% for item in dashboardLayoutItems %}
+        {% set key = item.key %}
+        {% set module = modules[key] %}
+        {% if item.type == 'module' %}
+            {% set access = moduleAccess[key]|default({'canView': false, 'canCreate': false}) %}
+            {% set listSummary = listModuleEntries[key]|default(null) %}
+            <div class="col-md-6 col-lg-4" id="module-{{ key }}">
+                {% if module.type|lower == 'list' %}
+                    {% if access.canView %}
+                        <a class="card h-100 text-decoration-none text-reset" href="/cms/modules/{{ key }}">
+                            <div class="card-body">
+                                <div class="text-center mb-3">
+                                    <i class="bi {{ module.menu.icon|default('bi-gear') }} fs-1 d-block mb-2"></i>
+                                    <h2 class="h5 mb-0">{{ module.label }}</h2>
+                                </div>
+                                <div class="mt-3">
+                                    <h3 class="h6 text-muted mb-2">Najnowsze wpisy</h3>
+                                    {% if listSummary and listSummary.entries %}
+                                        <ul class="list-group list-group-flush">
+                                            {% for entry in listSummary.entries %}
+                                                {% set summaryValue = listSummary.summaryField ? entry[listSummary.summaryField]|default('') : '' %}
+                                                <li class="list-group-item px-0 py-1 border-0">
+                                                    {{ summaryValue is not empty ? summaryValue : '#' ~ entry[listSummary.primaryKey]|default(loop.index) }}
+                                                </li>
+                                            {% endfor %}
+                                        </ul>
+                                    {% else %}
+                                        <p class="text-muted mb-0">Brak wpisów do wyświetlenia.</p>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </a>
+                    {% else %}
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <div class="text-center mb-3">
+                                    <i class="bi {{ module.menu.icon|default('bi-gear') }} fs-1 d-block mb-2"></i>
+                                    <h2 class="h5 mb-0">{{ module.label }}</h2>
+                                </div>
+                                <p class="text-muted mb-0">Brak uprawnień do podglądu wpisów.</p>
+                            </div>
+                        </div>
+                    {% endif %}
+                {% else %}
+                    <div class="card h-100">
+                        <div class="card-body">
+                            {% if module.type|lower == 'single' %}
+                                <div class="d-flex flex-column justify-content-center align-items-center text-center h-100">
+                                    {% if access.canView %}
+                                        <a class="text-decoration-none text-reset" href="/cms/modules/{{ key }}">
+                                            <i class="bi {{ module.menu.icon|default('bi-gear') }} fs-1 d-block mb-2"></i>
+                                            <h2 class="h5 mb-0">{{ module.label }}</h2>
+                                        </a>
+                                    {% else %}
+                                        <i class="bi {{ module.menu.icon|default('bi-gear') }} fs-1 d-block mb-2"></i>
+                                        <h2 class="h5 mb-0">{{ module.label }}</h2>
+                                    {% endif %}
+                                </div>
+                            {% else %}
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <h2 class="h5 mb-0">{{ module.label }}</h2>
+                                    <i class="bi {{ module.menu.icon|default('bi-gear') }} fs-4"></i>
+                                </div>
+                                <p class="text-muted">Typ: {{ module.type }}</p>
+                                {% if access.canView %}
+                                    <a class="btn btn-outline-primary" href="/cms/modules/{{ key }}">Zarządzaj</a>
+                                {% endif %}
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        {% else %}
+            <div class="col-12" id="module-{{ key }}-stats">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-2">
+                            <div>
+                                <h2 class="h5 mb-0">Statystyki: {{ module.label }}</h2>
+                                <p class="text-muted mb-0">Podsumowanie zgłoszeń</p>
+                            </div>
+                            <div class="dropdown">
+                                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" id="stats-export-{{ key }}" data-bs-toggle="dropdown" aria-expanded="false">
+                                    Pobierz dane
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="stats-export-{{ key }}">
+                                    <li><button class="dropdown-item" type="button" data-export="{{ key }}" data-format="csv">CSV</button></li>
+                                    <li><button class="dropdown-item" type="button" data-export="{{ key }}" data-format="excel">Excel</button></li>
+                                    <li><button class="dropdown-item" type="button" data-export="{{ key }}" data-format="pdf">PDF</button></li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="btn-group btn-group-sm" role="group" aria-label="Zakres statystyk">
+                            <button class="btn btn-outline-secondary active" type="button" data-module="{{ key }}" data-period="day">Dzień</button>
+                            <button class="btn btn-outline-secondary" type="button" data-module="{{ key }}" data-period="month">Miesiąc</button>
+                            <button class="btn btn-outline-secondary" type="button" data-module="{{ key }}" data-period="year">Rok</button>
+                        </div>
+                        <div class="mt-3" style="height: 200px;">
+                            <canvas id="module-chart-{{ key }}"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    {% endfor %}
+</div>
+{% if moduleStats %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <script>
+        const moduleStats = {{ moduleStats|json_encode|raw }};
+        document.addEventListener('DOMContentLoaded', () => {
+            if (!window.Chart) {
+                return;
+            }
+
+            const charts = {};
+            const getActivePeriod = (moduleKey) => {
+                const activeButton = document.querySelector(`[data-module="${moduleKey}"][data-period].active`);
+                return activeButton ? activeButton.dataset.period : 'day';
+            };
+
+            const buildRows = (moduleKey, period) => {
+                const periodStats = moduleStats[moduleKey]?.[period];
+                if (!periodStats) {
+                    return [];
+                }
+
+                const series = Array.isArray(periodStats.series) && periodStats.series.length
+                    ? periodStats.series
+                    : [{ key: 'all', label: 'Wartość', values: periodStats.values || [] }];
+
+                return periodStats.labels.map((label, index) => {
+                    const row = { label };
+                    series.forEach((seriesItem) => {
+                        row[seriesItem.key] = seriesItem.values[index] ?? 0;
+                    });
+                    return row;
+                });
+            };
+
+            const escapeCell = (value) => String(value)
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;');
+
+            const buildExcelContent = (rows, series) => {
+                const headerCells = ['<Cell><Data ss:Type="String">Okres</Data></Cell>', ...series.map((item) => `<Cell><Data ss:Type="String">${escapeCell(item.label)}</Data></Cell>`)].join('');
+                const headerRow = `<Row>${headerCells}</Row>`;
+                const bodyRows = rows.map((row) => {
+                    const periodCell = `<Cell><Data ss:Type="String">${escapeCell(row.label)}</Data></Cell>`;
+                    const valueCells = series.map((item) => {
+                        const value = Number(row[item.key] ?? 0);
+                        if (Number.isFinite(value)) {
+                            return `<Cell><Data ss:Type="Number">${value}</Data></Cell>`;
+                        }
+                        return `<Cell><Data ss:Type="String">${escapeCell(row[item.key] ?? '')}</Data></Cell>`;
+                    }).join('');
+
+                    return `<Row>${periodCell}${valueCells}</Row>`;
+                }).join('');
+
+                return `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Worksheet ss:Name="Statystyki">
+  <Table>
+   ${headerRow}
+   ${bodyRows}
+  </Table>
+ </Worksheet>
+</Workbook>`;
+            };
+
+            const sanitizeFilename = (value) => value
+                .toString()
+                .trim()
+                .replace(/[\\/:*?"<>|]+/g, '-')
+                .replace(/\s+/g, '-');
+
+            const downloadFile = (filename, content, mimeType) => {
+                const blob = new Blob([content], { type: mimeType });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                URL.revokeObjectURL(url);
+            };
+
+            Object.entries(moduleStats).forEach(([moduleKey, stats]) => {
+                const canvas = document.getElementById(`module-chart-${moduleKey}`);
+                if (!canvas) {
+                    return;
+                }
+
+                const palette = [
+                    { border: '#0d6efd', background: 'rgba(13, 110, 253, 0.75)' },
+                    { border: '#198754', background: 'rgba(25, 135, 84, 0.75)' },
+                    { border: '#dc3545', background: 'rgba(220, 53, 69, 0.75)' },
+                    { border: '#fd7e14', background: 'rgba(253, 126, 20, 0.75)' },
+                    { border: '#6f42c1', background: 'rgba(111, 66, 193, 0.75)' },
+                    { border: '#20c997', background: 'rgba(32, 201, 151, 0.75)' },
+                    { border: '#d63384', background: 'rgba(214, 51, 132, 0.75)' },
+                    { border: '#6c757d', background: 'rgba(108, 117, 125, 0.75)' },
+                    { border: '#0dcaf0', background: 'rgba(13, 202, 240, 0.75)' },
+                    { border: '#ffc107', background: 'rgba(255, 193, 7, 0.75)' },
+                    { border: '#6610f2', background: 'rgba(102, 16, 242, 0.75)' },
+                    { border: '#2b8a3e', background: 'rgba(43, 138, 62, 0.75)' },
+                ];
+
+                const buildChartState = (periodStats) => {
+                    const fallbackSeries = [{ key: 'all', label: stats.label || 'Liczba wpisów', values: periodStats.values || [] }];
+                    const rawSeries = Array.isArray(periodStats.series) && periodStats.series.length
+                        ? periodStats.series
+                        : fallbackSeries;
+                    const totalSeries = rawSeries.find((seriesItem) => seriesItem.key === 'all') || fallbackSeries[0];
+                    const groupedSeries = rawSeries.filter((seriesItem) => seriesItem.key !== 'all');
+                    const series = groupedSeries.length > 0 ? groupedSeries : rawSeries;
+
+                    return {
+                        labels: periodStats.labels,
+                        tooltipLabels: periodStats.labels,
+                        totalSeries,
+                        datasets: series.map((seriesItem, index) => {
+                            const colors = palette[index % palette.length];
+                            return {
+                                label: seriesItem.label,
+                                data: seriesItem.values,
+                                borderColor: colors.border,
+                                backgroundColor: colors.background,
+                                borderWidth: 1,
+                                borderRadius: 4,
+                                stack: 'breakdown',
+                            };
+                        }),
+                    };
+                };
+
+                const buildConfig = (period) => {
+                    const periodStats = stats[period];
+                    const chartState = buildChartState(periodStats);
+                    return {
+                        type: 'bar',
+                        data: {
+                            labels: chartState.labels,
+                            datasets: chartState.datasets,
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                x: {
+                                    stacked: true,
+                                    ticks: {
+                                        maxRotation: 0,
+                                        minRotation: 0,
+                                        autoSkip: true,
+                                        maxTicksLimit: 12,
+                                    },
+                                },
+                                y: {
+                                    stacked: true,
+                                    beginAtZero: true,
+                                    title: {
+                                        display: true,
+                                        text: 'Ilość elementów',
+                                    },
+                                    ticks: {
+                                        precision: 0,
+                                    },
+                                },
+                            },
+                            plugins: {
+                                legend: {
+                                    display: true,
+                                    position: 'bottom',
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        title(tooltipItems) {
+                                            const item = tooltipItems[0];
+                                            return chartState.tooltipLabels[item.dataIndex] || chartState.labels[item.dataIndex] || '';
+                                        },
+                                        footer(tooltipItems) {
+                                            const item = tooltipItems[0];
+                                            const total = chartState.totalSeries?.values?.[item.dataIndex];
+                                            return `Suma wszystkich elementów: ${total ?? 0}`;
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    };
+                };
+
+                charts[moduleKey] = new Chart(canvas, buildConfig('day'));
+
+                const buttons = document.querySelectorAll(`[data-module="${moduleKey}"][data-period]`);
+                buttons.forEach((button) => {
+                    button.addEventListener('click', () => {
+                        buttons.forEach((item) => item.classList.remove('active'));
+                        button.classList.add('active');
+                        const period = button.dataset.period;
+                        const periodStats = stats[period];
+                        if (!periodStats) {
+                            return;
+                        }
+                        const chart = charts[moduleKey];
+                        const chartState = buildChartState(periodStats);
+                        chart.data.labels = chartState.labels;
+                        chart.data.datasets = chartState.datasets;
+                        chart.options.plugins.tooltip.callbacks.title = (tooltipItems) => {
+                            const item = tooltipItems[0];
+                            return chartState.tooltipLabels[item.dataIndex] || chartState.labels[item.dataIndex] || '';
+                        };
+                        chart.options.plugins.tooltip.callbacks.footer = (tooltipItems) => {
+                            const item = tooltipItems[0];
+                            const total = chartState.totalSeries?.values?.[item.dataIndex];
+                            return `Suma wszystkich elementów: ${total ?? 0}`;
+                        };
+                        chart.update();
+                    });
+                });
+            });
+
+            const exportButtons = document.querySelectorAll('[data-export][data-format]');
+            exportButtons.forEach((button) => {
+                button.addEventListener('click', () => {
+                    const moduleKey = button.dataset.export;
+                    const format = button.dataset.format;
+                    const period = getActivePeriod(moduleKey);
+                    const rows = buildRows(moduleKey, period);
+                    const safeLabel = sanitizeFilename(moduleStats[moduleKey]?.label || 'statystyki');
+                    const periodStats = moduleStats[moduleKey]?.[period];
+                    const series = Array.isArray(periodStats?.series) && periodStats.series.length
+                        ? periodStats.series
+                        : [{ key: 'all', label: 'Wartość' }];
+
+                    if (!rows.length) {
+                        return;
+                    }
+
+                    if (format === 'csv') {
+                        const header = ['Okres', ...series.map((item) => item.label)].join(',');
+                        const lines = rows.map((row) => [row.label, ...series.map((item) => row[item.key] ?? 0)].join(','));
+                        const content = [header, ...lines].join('\n');
+                        const extension = 'csv';
+                        const mimeType = 'text/csv;charset=utf-8';
+                        downloadFile(`${safeLabel}-${period}.${extension}`, content, mimeType);
+                        return;
+                    }
+
+                    if (format === 'excel') {
+                        const content = buildExcelContent(rows, series);
+                        const extension = 'xls';
+                        const mimeType = 'application/vnd.ms-excel;charset=utf-8';
+                        downloadFile(`${safeLabel}-${period}.${extension}`, content, mimeType);
+                        return;
+                    }
+
+                    if (format === 'pdf' && window.jspdf?.jsPDF) {
+                        const { jsPDF } = window.jspdf;
+                        const doc = new jsPDF();
+                        doc.setFontSize(14);
+                        doc.text(`Statystyki: ${safeLabel} (${period})`, 14, 20);
+                        doc.setFontSize(11);
+                        let yPosition = 30;
+                        rows.forEach((row) => {
+                            const values = series.map((item) => `${item.label}: ${row[item.key] ?? 0}`).join(' | ');
+                            doc.text(`${row.label}: ${values}`, 14, yPosition);
+                            yPosition += 7;
+                            if (yPosition > 280) {
+                                doc.addPage();
+                                yPosition = 20;
+                            }
+                        });
+                        doc.save(`${safeLabel}-${period}.pdf`);
+                    }
+                });
+            });
+        });
+    </script>
+{% endif %}
+{% endblock %}

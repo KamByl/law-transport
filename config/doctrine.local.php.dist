@@ -1,0 +1,11 @@
+<?php
+
+// Skopiuj jako config/doctrine.local.php i uzupełnij.
+return [
+    'db' => [
+        'host' => 'localhost',
+        'dbname' => 'law_transport',
+        'user' => '',
+        'password' => '',
+    ],
+];

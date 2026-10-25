@@ -1,0 +1,22 @@
+{% extends 'layout/backend.html.twig' %}
+
+{% block content %}
+<h1 class="h3 mb-4">Profil użytkownika</h1>
+{% if message %}
+    <div class="alert alert-success">{{ message }}</div>
+{% endif %}
+<div class="card">
+    <div class="card-body">
+        <h2 class="h5">{{ user.firstName }} {{ user.lastName }}</h2>
+        <p class="text-muted">{{ user.email }}</p>
+        <form method="post">
+        {% include 'backend/_csrf_token.html.twig' %}
+            <div class="mb-3">
+                <label class="form-label">Nowe hasło</label>
+                <input type="password" name="password" class="form-control">
+            </div>
+            <button class="btn btn-primary">Zmień hasło</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

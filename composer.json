@@ -1,0 +1,30 @@
+{
+  "name": "example/cms2",
+  "description": "Minimalny szkielet CMS oparty o Doctrine, Twig i Symfony Routing",
+  "type": "project",
+  "license": "MIT",
+  "require": {
+    "php": "^8.1",
+    "doctrine/orm": "^2.16",
+    "dompdf/dompdf": "^3.1",
+    "phpoffice/phpspreadsheet": "^2.1",
+    "symfony/routing": "^6.4",
+    "symfony/http-foundation": "^6.4",
+    "symfony/http-kernel": "^6.4",
+    "symfony/http-client": "^6.4",
+    "symfony/mailer": "^6.4",
+    "symfony/mime": "^6.4",
+    "twig/twig": "^3.8",
+    "symfony/cache": "^6.4"
+  },
+  "autoload": {
+    "psr-4": {
+      "App\\": "src/"
+    }
+  },
+  "scripts": {
+    "post-install-cmd": [
+      "@php -r \"if (!file_exists('var')) { mkdir('var', 0775, true); }\""
+    ]
+  }
+}

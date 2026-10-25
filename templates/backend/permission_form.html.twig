@@ -1,0 +1,37 @@
+{% extends 'layout/backend.html.twig' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="h3 mb-1">{{ title }}</h1>
+        <p class="text-muted mb-0">Uzupełnij dane uprawnienia.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="/cms/permissions">Wróć</a>
+</div>
+
+<div class="card p-4">
+    {% if errors is not empty %}
+        <div class="alert alert-danger">
+            <ul class="mb-0">
+                {% for error in errors %}
+                    <li>{{ error }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+    <form method="post">
+        {% include 'backend/_csrf_token.html.twig' %}
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <label class="form-label">Kod</label>
+                <input class="form-control" type="text" name="code" value="{{ permission.code|default('') }}" required>
+            </div>
+            <div class="col-md-6 mb-3">
+                <label class="form-label">Nazwa</label>
+                <input class="form-control" type="text" name="label" value="{{ permission.label|default('') }}" required>
+            </div>
+        </div>
+        <button class="btn btn-primary" type="submit">Zapisz</button>
+    </form>
+</div>
+{% endblock %}

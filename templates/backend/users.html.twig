@@ -1,0 +1,115 @@
+{% extends 'layout/backend.html.twig' %}
+
+{% block content %}
+{% set canCreate = permissionService.can(user, 'users', 'create') %}
+{% set canEdit = permissionService.can(user, 'users', 'edit') %}
+{% set canDelete = permissionService.can(user, 'users', 'delete') %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="h3 mb-1">Użytkownicy</h1>
+        <p class="text-muted mb-0">Zarządzaj użytkownikami systemu.</p>
+    </div>
+    {% if canCreate %}
+        <a class="btn btn-primary" href="/cms/users/create">Dodaj użytkownika</a>
+    {% endif %}
+</div>
+
+<div class="card p-4">
+    <form class="row g-2 align-items-center mb-3" method="get" action="/cms/users">
+        <div class="col-sm-6 col-md-4">
+            <input class="form-control" type="search" name="q" value="{{ query }}" placeholder="Szukaj użytkownika">
+        </div>
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="dir" value="{{ dir }}">
+        <div class="col-auto">
+            <button class="btn btn-outline-primary" type="submit">Szukaj</button>
+        </div>
+        {% if query %}
+            <div class="col-auto">
+                <a class="btn btn-outline-secondary" href="/cms/users">Wyczyść</a>
+            </div>
+        {% endif %}
+    </form>
+
+    {% set queryPrefix = query ? ('?q=' ~ query|url_encode ~ '&') : '?' %}
+    {% set idDir = sort == 'id' and dir == 'asc' ? 'desc' : 'asc' %}
+    {% set firstNameDir = sort == 'firstName' and dir == 'asc' ? 'desc' : 'asc' %}
+    {% set lastNameDir = sort == 'lastName' and dir == 'asc' ? 'desc' : 'asc' %}
+    {% set emailDir = sort == 'email' and dir == 'asc' ? 'desc' : 'asc' %}
+    {% set groupDir = sort == 'group' and dir == 'asc' ? 'desc' : 'asc' %}
+    {% set activeDir = sort == 'active' and dir == 'asc' ? 'desc' : 'asc' %}
+    <table class="table table-hover align-middle">
+        <thead>
+            <tr>
+                <th>
+                    <a href="{{ queryPrefix }}sort=id&dir={{ idDir }}" class="text-decoration-none">
+                        ID{% if sort == 'id' %} {{ dir == 'asc' ? '↑' : '↓' }}{% endif %}
+                    </a>
+                </th>
+                <th>
+                    <a href="{{ queryPrefix }}sort=firstName&dir={{ firstNameDir }}" class="text-decoration-none">
+                        Imię{% if sort == 'firstName' %} {{ dir == 'asc' ? '↑' : '↓' }}{% endif %}
+                    </a>
+                </th>
+                <th>
+                    <a href="{{ queryPrefix }}sort=lastName&dir={{ lastNameDir }}" class="text-decoration-none">
+                        Nazwisko{% if sort == 'lastName' %} {{ dir == 'asc' ? '↑' : '↓' }}{% endif %}
+                    </a>
+                </th>
+                <th>
+                    <a href="{{ queryPrefix }}sort=email&dir={{ emailDir }}" class="text-decoration-none">
+                        Email{% if sort == 'email' %} {{ dir == 'asc' ? '↑' : '↓' }}{% endif %}
+                    </a>
+                </th>
+                <th>
+                    <a href="{{ queryPrefix }}sort=group&dir={{ groupDir }}" class="text-decoration-none">
+                        Grupa{% if sort == 'group' %} {{ dir == 'asc' ? '↑' : '↓' }}{% endif %}
+                    </a>
+                </th>
+                <th>
+                    <a href="{{ queryPrefix }}sort=active&dir={{ activeDir }}" class="text-decoration-none">
+                        Status{% if sort == 'active' %} {{ dir == 'asc' ? '↑' : '↓' }}{% endif %}
+                    </a>
+                </th>
+                <th>Może przelogowywać</th>
+                <th class="text-end">Akcje</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in users %}
+                <tr>
+                    <td>{{ row.id }}</td>
+                    <td>{{ row.firstName }}</td>
+                    <td>{{ row.lastName }}</td>
+                    <td>{{ row.email }}</td>
+                    {% set group = row.groups|first %}
+                    <td>{{ group ? group.name : 'Brak grupy' }}</td>
+                    <td>{{ row.active ? 'Aktywny' : 'Nieaktywny' }}</td>
+                    <td>{{ row.canImpersonate ? 'Tak' : 'Nie' }}</td>
+                    <td class="text-end">
+                        {% if user.canImpersonate and row.active and row.id != user.id %}
+                            <form method="post" action="/cms/users/{{ row.id }}/impersonate" class="d-inline" onsubmit="return confirm('Czy na pewno chcesz przelogować się na tego użytkownika?');">
+                                {% include 'backend/_csrf_token.html.twig' %}
+                                <button class="btn btn-sm btn-outline-secondary" type="submit">Zaloguj jako</button>
+                            </form>
+                        {% endif %}
+                        {% if canEdit %}
+                            <a class="btn btn-sm btn-outline-primary" href="/cms/users/{{ row.id }}/edit">Edytuj</a>
+                        {% endif %}
+                        {% if canDelete %}
+                            <form method="post" action="/cms/users/{{ row.id }}/delete" class="d-inline" onsubmit="return confirm('Czy na pewno chcesz usunąć tego użytkownika?');">
+                                {% include 'backend/_csrf_token.html.twig' %}
+                                <button class="btn btn-sm btn-outline-danger" type="submit">Usuń</button>
+                            </form>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="8" class="text-center text-muted">Brak użytkowników w bazie.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

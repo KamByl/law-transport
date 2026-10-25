@@ -1,0 +1,63 @@
+{% extends 'layout/backend.html.twig' %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
+        <div>
+            <h1 class="h4 mb-1">Logi logowań</h1>
+            <p class="text-muted mb-0">Podgląd prób logowania do systemu.</p>
+        </div>
+        <form class="d-flex" method="get" action="/cms/login-logs">
+            <input type="text" name="q" class="form-control form-control-sm" placeholder="Szukaj po emailu, IP" value="{{ query }}">
+            <button class="btn btn-primary btn-sm ms-2" type="submit">Szukaj</button>
+        </form>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Użytkownik</th>
+                            <th>Email</th>
+                            <th>IP</th>
+                            <th>Przeglądarka</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in logs %}
+                            <tr>
+                                <td>{{ log.loggedAt ? log.loggedAt|date('Y-m-d H:i:s') : '' }}</td>
+                                <td>
+                                    {% if log.user %}
+                                        {{ log.user.firstName }} {{ log.user.lastName }}
+                                    {% else %}
+                                        <span class="text-muted">Nieznany</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ log.email }}</td>
+                                <td>{{ log.ipAddress|default('') }}</td>
+                                <td class="small text-muted">{{ log.userAgent|default('') }}</td>
+                                <td>
+                                    {% if log.success %}
+                                        <span class="badge bg-success">OK</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">Błąd</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="6" class="text-center text-muted">Brak logów do wyświetlenia.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

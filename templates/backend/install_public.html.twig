@@ -1,0 +1,58 @@
+{% extends 'layout/base.html.twig' %}
+
+{% block body %}
+    <div class="container py-5" style="max-width: 720px;">
+        {% block content %}
+        <h1 class="h3 mb-4">Instalacja bazy danych</h1>
+        <p class="text-muted">System tworzy brakujące tabele i kolumny, ale nie usuwa istniejących pól.</p>
+
+        {% if initialInstallation and not installationCompleted %}
+            <div class="alert alert-warning">Pierwsza instalacja wymaga utworzenia głównego konta administratora. Dane nie są już seedowane z przewidywalnym hasłem.</div>
+
+            {% if errors is not empty %}
+                <div class="alert alert-danger">
+                    <ul class="mb-0 ps-3">
+                        {% for error in errors %}
+                            <li>{{ error }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+
+            <form method="post" class="card shadow-sm border-0">
+                <div class="card-body p-4">
+                    {% include 'backend/_csrf_token.html.twig' %}
+                    <div class="mb-3">
+                        <label class="form-label" for="admin_email">E-mail głównego użytkownika</label>
+                        <input id="admin_email" type="email" name="admin_email" class="form-control" value="{{ adminEmail|default('') }}" autocomplete="email" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="admin_password">Hasło</label>
+                        <input id="admin_password" type="password" name="admin_password" class="form-control" autocomplete="new-password" minlength="12" required>
+                        <div class="form-text">Użyj silnego hasła o długości co najmniej 12 znaków.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="admin_password_confirmation">Powtórz hasło</label>
+                        <input id="admin_password_confirmation" type="password" name="admin_password_confirmation" class="form-control" autocomplete="new-password" minlength="12" required>
+                    </div>
+                    <button class="btn btn-primary" type="submit">Zainstaluj i utwórz konto</button>
+                </div>
+            </form>
+        {% else %}
+            {% if executedSql is empty %}
+                <div class="alert alert-success">Brak zmian do wykonania. Schemat jest aktualny.</div>
+            {% else %}
+                <div class="alert alert-info">Wykonano aktualizację schematu. Poniżej lista zapytań SQL:</div>
+                <pre class="bg-light p-3 border rounded">{{ executedSql|join('\n') }}</pre>
+            {% endif %}
+
+            {% if initialInstallation and installationCompleted %}
+                <div class="alert alert-success mt-3">
+                    Instalacja została zakończona i utworzono główne konto administratora <strong>{{ adminEmail }}</strong>.
+                    <a href="/cms/login" class="alert-link">Przejdź do logowania</a>.
+                </div>
+            {% endif %}
+        {% endif %}
+        {% endblock %}
+    </div>
+{% endblock %}

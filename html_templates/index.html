@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Weryfikacja wieku — Żywiec Męskie Granie 2026">
+  <title>Żywiec — weryfikacja wieku</title>
+  <link rel="stylesheet" href="media/css/zywiec.css">
+</head>
+<body class="age-page">
+  <main class="age-gate">
+    <form class="age-card" data-age-gate data-target="main.html" novalidate>
+      <div class="campaign-mark" aria-label="Z Żabki aż na backstage">
+        <span class="top">Z Żabki</span>
+        <span class="bottom">aż na <span class="red">backstage</span></span>
+      </div>
+      <p>Wprowadź swoją datę urodzenia, aby potwierdzić swój wiek.</p>
+      <div class="date-fields">
+        <input name="day" inputmode="numeric" maxlength="2" placeholder="DD" aria-label="Dzień urodzenia" required>
+        <input name="month" inputmode="numeric" maxlength="2" placeholder="MM" aria-label="Miesiąc urodzenia" required>
+        <input name="year" inputmode="numeric" maxlength="4" placeholder="RRRR" aria-label="Rok urodzenia" required>
+      </div>
+      <div class="age-error" aria-live="polite"></div>
+      <button class="button wide" type="submit">Potwierdź</button>
+    </form>
+  </main>
+  <script src="media/js/zywiec.js"></script>
+</body>
+</html>
+

@@ -1,0 +1,128 @@
+{% extends 'layout/backend.html.twig' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="h3 mb-1">{{ title }}</h1>
+        <p class="text-muted mb-0">Ustaw nazwę grupy użytkowników.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="/cms/groups">Wróć</a>
+</div>
+
+<div class="card p-4">
+    <form method="post">
+        {% include 'backend/_csrf_token.html.twig' %}
+        <div class="mb-3">
+            <label class="form-label">Nazwa grupy</label>
+            <input class="form-control" type="text" name="name" value="{{ group.name|default('') }}" required>
+        </div>
+        {% if group.id %}
+            <div class="mb-3">
+                <label class="form-label">Użytkownicy w grupie</label>
+                <input class="form-control mb-2" type="search" id="group-user-search" placeholder="Szukaj użytkownika po imieniu, nazwisku lub e-mailu">
+                <div class="border rounded p-2" style="max-height: 240px; overflow-y: auto;">
+                    {% if users is not empty %}
+                        {% for member in users %}
+                            {% set optionLabel = member.firstName ~ ' ' ~ member.lastName ~ ' (' ~ member.email ~ ')' %}
+                            <div class="form-check group-user-option" data-search="{{ optionLabel|lower }}">
+                                <input class="form-check-input" type="checkbox" name="user_ids[]" value="{{ member.id }}" id="user-{{ member.id }}"{% if member.id in selectedUserIds %} checked{% endif %}>
+                                <label class="form-check-label" for="user-{{ member.id }}">{{ optionLabel }}</label>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="text-muted">Brak użytkowników do przypisania.</div>
+                    {% endif %}
+                </div>
+                <div class="form-text">Wybierz użytkowników, którzy mają należeć do tej grupy. Użyj wyszukiwarki, aby szybko znaleźć osoby.</div>
+            </div>
+        {% endif %}
+        <div class="mb-3">
+            <label class="form-label">Uprawnienia grupy</label>
+            <input class="form-control mb-2" type="search" id="group-permission-search" placeholder="Szukaj uprawnień po nazwie lub kodzie">
+            <div class="border rounded p-2" style="max-height: 240px; overflow-y: auto;">
+                {% if permissions is not empty %}
+                    {% for permission in permissions %}
+                        {% set optionLabel = permission.label ~ ' (' ~ permission.code ~ ')' %}
+                        {% set actionState = permissionActions[permission.id]|default({}) %}
+                        <div class="group-permission-option" data-search="{{ optionLabel|lower }}">
+                            <div class="fw-semibold">{{ optionLabel }}</div>
+                            <div class="d-flex flex-wrap gap-3 mt-1{% if not loop.last %} border-bottom pb-2 mb-2{% endif %}">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permission_actions[{{ permission.id }}][view]" id="group-permission-{{ permission.id }}-view"{% if actionState.view|default(false) %} checked{% endif %}>
+                                    <label class="form-check-label" for="group-permission-{{ permission.id }}-view">Podgląd</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permission_actions[{{ permission.id }}][create]" id="group-permission-{{ permission.id }}-create"{% if actionState.create|default(false) %} checked{% endif %}>
+                                    <label class="form-check-label" for="group-permission-{{ permission.id }}-create">Dodawanie</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permission_actions[{{ permission.id }}][edit]" id="group-permission-{{ permission.id }}-edit"{% if actionState.edit|default(false) %} checked{% endif %}>
+                                    <label class="form-check-label" for="group-permission-{{ permission.id }}-edit">Edycja</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permission_actions[{{ permission.id }}][delete]" id="group-permission-{{ permission.id }}-delete"{% if actionState.delete|default(false) %} checked{% endif %}>
+                                    <label class="form-check-label" for="group-permission-{{ permission.id }}-delete">Usuwanie</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permission_actions[{{ permission.id }}][stats]" id="group-permission-{{ permission.id }}-stats"{% if actionState.stats|default(false) %} checked{% endif %}>
+                                    <label class="form-check-label" for="group-permission-{{ permission.id }}-stats">Statystyki</label>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="text-muted">Brak zdefiniowanych uprawnień.</div>
+                {% endif %}
+            </div>
+            <div class="form-text">Zaznacz czynności, które mają być dostępne w ramach tej grupy.</div>
+        </div>
+        <button class="btn btn-primary" type="submit">Zapisz</button>
+    </form>
+</div>
+{% endblock %}
+
+{% block javascripts %}
+    {{ parent() }}
+    <script>
+        (function () {
+            const searchInput = document.getElementById('group-user-search');
+            if (!searchInput) {
+                return;
+            }
+
+            const options = Array.from(document.querySelectorAll('.group-user-option'));
+            const normalize = (value) => (value || '').toLowerCase();
+
+            const applyFilter = () => {
+                const term = normalize(searchInput.value.trim());
+                options.forEach((option) => {
+                    const haystack = option.dataset.search || '';
+                    option.classList.toggle('d-none', term.length > 0 && !haystack.includes(term));
+                });
+            };
+
+            searchInput.addEventListener('input', applyFilter);
+        })();
+    </script>
+    <script>
+        (function () {
+            const searchInput = document.getElementById('group-permission-search');
+            if (!searchInput) {
+                return;
+            }
+
+            const options = Array.from(document.querySelectorAll('.group-permission-option'));
+            const normalize = (value) => (value || '').toLowerCase();
+
+            const applyFilter = () => {
+                const term = normalize(searchInput.value.trim());
+                options.forEach((option) => {
+                    const haystack = option.dataset.search || '';
+                    option.classList.toggle('d-none', term.length > 0 && !haystack.includes(term));
+                });
+            };
+
+            searchInput.addEventListener('input', applyFilter);
+        })();
+    </script>
+{% endblock %}

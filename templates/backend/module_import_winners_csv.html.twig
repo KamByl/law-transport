@@ -1,0 +1,196 @@
+{% extends 'layout/backend.html.twig' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="h3 mb-1">Dodaj wielu zwycięzców</h1>
+        <p class="text-muted mb-0">Wybierz rodzaj wygranej i nagrodę, a następnie wpisz identyfikatory losów lub zdrapek albo wczytaj plik CSV.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ backUrl }}">Wróć do listy</a>
+</div>
+
+<div class="card p-4">
+    {% if errors is not empty %}
+        <div class="alert alert-danger">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                <strong>Import nie został wykonany</strong>
+                {% if currentImportLog %}
+                    <div class="d-flex gap-2">
+                        <a class="btn btn-sm btn-outline-danger" href="/cms/modules/{{ moduleKey }}/import-winners-csv/log/{{ currentImportLog.id }}">Wyświetl pełny log</a>
+                        <a class="btn btn-sm btn-danger" href="/cms/modules/{{ moduleKey }}/import-winners-csv/log/{{ currentImportLog.id }}?download=1">Pobierz log</a>
+                    </div>
+                {% endif %}
+            </div>
+            <ul class="mb-0 ps-3">
+                {% for error in errors %}
+                    <li>{{ error }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data" class="row g-3">
+        {% include 'backend/_csrf_token.html.twig' %}
+
+        <div class="col-md-6">
+            <label class="form-label" for="winner-kind">Rodzaj wygranej</label>
+            <select class="form-select" id="winner-kind" name="rodzaj" required>
+                <option value="los" {% if values.rodzaj|default('los') == 'los' %}selected{% endif %}>Los</option>
+                <option value="zdrapka" {% if values.rodzaj|default('') == 'zdrapka' %}selected{% endif %}>Zdrapka</option>
+            </select>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="winner-prize-type">Rodzaj nagrody</label>
+            <select class="form-select" id="winner-prize-type" name="rodzaj_wygranej" required>
+                <option value="">Wybierz rodzaj nagrody</option>
+                {% for prize in prizeTypeOptions %}
+                    <option
+                        value="{{ prize.id }}"
+                        data-prize-kind="{{ prize.kind }}"
+                        {% if values.rodzaj_wygranej|default('') == prize.id %}selected{% endif %}
+                    >{{ prize.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="col-md-6" id="winner-drawing-wrap">
+            <label class="form-label" for="winner-drawing">Losowanie, w którym wylosowano nagrodę</label>
+            <select class="form-select" id="winner-drawing" name="losowanie">
+                <option value="">Wybierz losowanie</option>
+                {% for drawingId, drawingLabel in drawingOptions %}
+                    {% set drawingDisabled = disabledDrawingOptions[drawingId]|default(false) %}
+                    <option
+                        value="{{ drawingId }}"
+                        {% if values.losowanie|default('') == drawingId %}selected{% endif %}
+                        {% if drawingDisabled %}disabled class="text-muted"{% endif %}
+                    >{{ drawingLabel }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="col-12">
+            <label class="form-label" for="winner-ids">ID losów lub zdrapek</label>
+            <textarea class="form-control" id="winner-ids" name="winner_ids" rows="5" placeholder="NM-QTEST-20260906-9F3C-026&#10;NM-QTEST-20260906-9F3C-027">{{ values.winner_ids|default('') }}</textarea>
+            <div class="form-text">Możesz wpisać kilka ID, oddzielając je nową linią, przecinkiem, średnikiem lub spacją.</div>
+        </div>
+
+        <div class="col-12 text-muted">albo</div>
+
+        <div class="col-12">
+            <label class="form-label" for="winners-csv-file">Plik CSV z identyfikatorami</label>
+            <input class="form-control" type="file" id="winners-csv-file" name="winners_csv_file" accept=".csv,text/csv">
+            <div class="form-text">
+                Plik powinien zawierać kolumnę <strong>ID</strong>. Możesz też użyć bezpośrednio pliku „Pobierz losy” z kolumną <strong>Los - ID</strong>.
+            </div>
+        </div>
+
+        <div class="col-12">
+            <div class="border rounded p-3 bg-light">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                    <strong>Przykładowy plik CSV</strong>
+                    <a class="btn btn-sm btn-outline-primary" href="/cms/modules/{{ moduleKey }}/import-winners-csv?sample=1">Pobierz przykład CSV</a>
+                </div>
+                <pre class="mb-0"><code>ID
+12345
+12346</code></pre>
+            </div>
+        </div>
+
+        <div class="col-12">
+            {% include 'backend/_winner_email_option.html.twig' %}
+        </div>
+        <div class="col-12 d-flex gap-2">
+            <button class="btn btn-primary" type="submit">Dodaj zwycięzców</button>
+            <a class="btn btn-outline-secondary" href="{{ backUrl }}">Anuluj</a>
+        </div>
+    </form>
+</div>
+
+<div class="card p-4 mt-4" id="historia-importow">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div>
+            <h2 class="h5 mb-1">Logi importu zwycięzców</h2>
+            <p class="text-muted small mb-0">30 ostatnich raportów. Każdy zawiera wszystkie problematyczne ID, powody pominięcia oraz wynik zapisu.</p>
+        </div>
+    </div>
+
+    {% if importLogs is not empty %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Data</th>
+                        <th>Źródło</th>
+                        <th>Status</th>
+                        <th>Wynik</th>
+                        <th class="text-end">Raport</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in importLogs %}
+                        <tr>
+                            <td class="text-nowrap">{{ log.display_created_at }}</td>
+                            <td>{{ log.source_file|default('—') }}</td>
+                            <td>
+                                {% if log.status == 'success' %}
+                                    <span class="badge text-bg-success">Sukces</span>
+                                {% elseif log.status == 'warning' %}
+                                    <span class="badge text-bg-warning">Częściowo</span>
+                                {% else %}
+                                    <span class="badge text-bg-danger">Błąd</span>
+                                {% endif %}
+                            </td>
+                            <td class="small">
+                                Dodano: {{ log.imported_count|default(0) }},
+                                pominięto: {{ log.skipped_count|default(0) }},
+                                błędy: {{ log.error_count|default(0) }}
+                            </td>
+                            <td class="text-end text-nowrap">
+                                <a class="btn btn-sm btn-outline-secondary" href="/cms/modules/{{ moduleKey }}/import-winners-csv/log/{{ log.id }}">Wyświetl</a>
+                                <a class="btn btn-sm btn-outline-primary" href="/cms/modules/{{ moduleKey }}/import-winners-csv/log/{{ log.id }}?download=1">Pobierz</a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="text-muted">Nie ma jeszcze zapisanych raportów importu.</div>
+    {% endif %}
+</div>
+
+<script>
+(() => {
+    const kindSelect = document.getElementById('winner-kind');
+    const prizeSelect = document.getElementById('winner-prize-type');
+    const drawingWrap = document.getElementById('winner-drawing-wrap');
+    const drawingSelect = document.getElementById('winner-drawing');
+    if (!kindSelect || !prizeSelect || !drawingWrap || !drawingSelect) return;
+
+    const refreshPrizeOptions = () => {
+        const isScratchWinner = kindSelect.value === 'zdrapka';
+        const requiredKind = isScratchWinner ? 'zdrapki' : 'losy';
+        let selectedIsVisible = prizeSelect.value === '';
+
+        Array.from(prizeSelect.options).forEach((option) => {
+            const optionKind = option.dataset.prizeKind || '';
+            const visible = option.value === '' || optionKind === '' || optionKind === requiredKind;
+            option.hidden = !visible;
+            option.disabled = !visible;
+            if (option.selected && visible) selectedIsVisible = true;
+        });
+
+        if (!selectedIsVisible) prizeSelect.value = '';
+
+        drawingWrap.classList.toggle('d-none', isScratchWinner);
+        drawingSelect.disabled = isScratchWinner;
+        drawingSelect.required = !isScratchWinner;
+        if (isScratchWinner) drawingSelect.value = '';
+    };
+
+    kindSelect.addEventListener('change', refreshPrizeOptions);
+    refreshPrizeOptions();
+})();
+</script>
+{% endblock %}

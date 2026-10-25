@@ -1,0 +1,131 @@
+{% extends 'layout/backend.html.twig' %}
+
+{% block content %}
+<h1 class="h3 mb-4">Ustawienia dashboardu</h1>
+<p class="text-muted">Wybierz moduły oraz statystyki, które mają być widoczne na dashboardzie, i ustaw ich kolejność.</p>
+<form method="post" action="/cms/dashboard/preferences/update">
+    {% include 'backend/_csrf_token.html.twig' %}
+    <div class="row g-4">
+        <div class="col-12">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Moduły i statystyki</h2>
+                    <div class="table-responsive">
+                        <table class="table align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Typ</th>
+                                    <th>Nazwa</th>
+                                    <th class="text-center">Widoczne</th>
+                                    <th class="text-center">Przeciągnij</th>
+                                </tr>
+                            </thead>
+                            <tbody data-order-group="dashboard">
+                                {% for item in dashboardLayoutItems %}
+                                    {% set key = item.key %}
+                                    {% set module = modules[key] %}
+                                    {% if item.type == 'module' %}
+                                        {% set preferences = dashboardPreferences.modules[key]|default({'enabled': true, 'order': loop.index}) %}
+                                        <tr draggable="true">
+                                            <td><span class="badge text-bg-primary">Moduł</span></td>
+                                            <td>{{ module.label }}</td>
+                                            <td class="text-center">
+                                                <input class="form-check-input" type="checkbox" name="module_settings[{{ key }}][enabled]" {% if preferences.enabled %}checked{% endif %}>
+                                            </td>
+                                            <td class="text-center" style="width: 120px;">
+                                                <span class="drag-handle text-muted" role="button" aria-label="Przeciągnij, aby zmienić kolejność" style="cursor: grab;">
+                                                    <i class="bi bi-grip-vertical"></i>
+                                                </span>
+                                                <input type="hidden" name="module_settings[{{ key }}][order]" value="{{ item.order|default(loop.index) }}">
+                                            </td>
+                                        </tr>
+                                    {% else %}
+                                        {% set preferences = dashboardPreferences.stats[key]|default({'enabled': false, 'order': loop.index}) %}
+                                        <tr draggable="true">
+                                            <td><span class="badge text-bg-secondary">Statystyki</span></td>
+                                            <td>{{ module.label }}</td>
+                                            <td class="text-center">
+                                                <input class="form-check-input" type="checkbox" name="stats_settings[{{ key }}][enabled]" {% if preferences.enabled %}checked{% endif %}>
+                                            </td>
+                                            <td class="text-center" style="width: 120px;">
+                                                <span class="drag-handle text-muted" role="button" aria-label="Przeciągnij, aby zmienić kolejność" style="cursor: grab;">
+                                                    <i class="bi bi-grip-vertical"></i>
+                                                </span>
+                                                <input type="hidden" name="stats_settings[{{ key }}][order]" value="{{ item.order|default(loop.index) }}">
+                                            </td>
+                                        </tr>
+                                    {% endif %}
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <button class="btn btn-primary btn-sm mt-3" type="submit">Zapisz ustawienia</button>
+</form>
+<script>
+    const tables = document.querySelectorAll('tbody[data-order-group]');
+    const form = document.querySelector('form[action="/cms/dashboard/preferences/update"]');
+
+    const initOrderTable = (tableBody) => {
+        let draggedRow = null;
+        const updateOrderInputs = () => {
+            Array.from(tableBody.querySelectorAll('tr')).forEach((row, index) => {
+                const input = row.querySelector('input[type="hidden"][name*="[order]"]');
+                if (input) {
+                    input.value = index + 1;
+                }
+            });
+        };
+
+        tableBody.addEventListener('dragstart', (event) => {
+            const row = event.target.closest('tr');
+            if (!row) {
+                return;
+            }
+            draggedRow = row;
+            row.classList.add('table-active');
+            if (event.dataTransfer) {
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('text/plain', '');
+            }
+        });
+
+        tableBody.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            const targetRow = event.target.closest('tr');
+            if (!targetRow || targetRow === draggedRow) {
+                return;
+            }
+            const rect = targetRow.getBoundingClientRect();
+            const shouldInsertAfter = event.clientY > rect.top + rect.height / 2;
+            tableBody.insertBefore(draggedRow, shouldInsertAfter ? targetRow.nextSibling : targetRow);
+        });
+
+        tableBody.addEventListener('drop', (event) => {
+            event.preventDefault();
+            updateOrderInputs();
+        });
+
+        tableBody.addEventListener('dragend', () => {
+            if (draggedRow) {
+                draggedRow.classList.remove('table-active');
+            }
+            draggedRow = null;
+            updateOrderInputs();
+        });
+
+        return updateOrderInputs;
+    };
+
+    const updateCallbacks = Array.from(tables).map((tableBody) => initOrderTable(tableBody));
+
+    if (form) {
+        form.addEventListener('submit', () => {
+            updateCallbacks.forEach((update) => update());
+        });
+    }
+</script>
+{% endblock %}

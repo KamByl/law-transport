@@ -1,0 +1,23 @@
+{% extends 'layout/base.html.twig' %}
+{% set body_class = 'admin-body' %}
+
+{% block body %}
+<div class="container d-flex align-items-center justify-content-center min-vh-100">
+    <form method="post" class="card p-4 shadow-sm" style="max-width: 420px; width: 100%;">
+        {% include 'backend/_csrf_token.html.twig' %}
+        <h1 class="h4 mb-3">Logowanie do CMS</h1>
+        {% if error %}
+            <div class="alert alert-danger">{{ error }}</div>
+        {% endif %}
+        <div class="mb-3">
+            <label class="form-label">E-mail</label>
+            <input type="email" name="email" class="form-control" required>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Hasło</label>
+            <input type="password" name="password" class="form-control" required>
+        </div>
+        <button class="btn btn-primary w-100">Zaloguj</button>
+    </form>
+</div>
+{% endblock %}

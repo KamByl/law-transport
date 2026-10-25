@@ -1,0 +1,72 @@
+{% extends 'layout/backend.html.twig' %}
+
+{% block content %}
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
+    <div>
+        <h1 class="h3 mb-1">Log importu zwycięzców</h1>
+        <p class="text-muted mb-0">{{ log.display_created_at }}{% if log.source_file %} · {{ log.source_file }}{% endif %}</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-primary" href="/cms/modules/{{ moduleKey }}/import-winners-csv/log/{{ log.id }}?download=1">Pobierz TXT</a>
+        <a class="btn btn-outline-secondary" href="/cms/modules/{{ moduleKey }}/import-winners-csv#historia-importow">Wróć do logów</a>
+    </div>
+</div>
+
+<div class="card p-4 mb-4">
+    <div class="row g-3">
+        <div class="col-sm-6 col-lg-3">
+            <div class="text-muted small">Status</div>
+            {% if log.status == 'success' %}
+                <span class="badge text-bg-success">Sukces</span>
+            {% elseif log.status == 'warning' %}
+                <span class="badge text-bg-warning">Częściowo</span>
+            {% else %}
+                <span class="badge text-bg-danger">Błąd</span>
+            {% endif %}
+        </div>
+        <div class="col-sm-6 col-lg-3"><div class="text-muted small">Dodano</div><strong>{{ log.imported_count|default(0) }}</strong></div>
+        <div class="col-sm-6 col-lg-3"><div class="text-muted small">Pominięto</div><strong>{{ log.skipped_count|default(0) }}</strong></div>
+        <div class="col-sm-6 col-lg-3"><div class="text-muted small">Błędy</div><strong>{{ log.error_count|default(0) }}</strong></div>
+        <div class="col-sm-6"><div class="text-muted small">Rodzaj wygranej</div>{{ log.winner_kind_label|default('—') }}</div>
+        <div class="col-sm-6"><div class="text-muted small">Nagroda</div>{{ log.prize_name|default(log.prize_type|default('—')) }}</div>
+        {% if log.drawing_id %}<div class="col-sm-6"><div class="text-muted small">Losowanie</div>{{ log.drawing_label|default(log.drawing_id) }}</div>{% endif %}
+        <div class="col-sm-6"><div class="text-muted small">Użytkownik</div>{{ log.user_email|default('—') }}</div>
+    </div>
+</div>
+
+{% if log.errors is not empty %}
+    <div class="card p-4 mb-4">
+        <h2 class="h5 text-danger">Komunikaty błędów</h2>
+        <ul class="mb-0 ps-3">
+            {% for error in log.errors %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+    </div>
+{% endif %}
+
+{% if log.details is not empty %}
+    <div class="card p-4 mb-4">
+        <h2 class="h5">Szczegóły pozycji</h2>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead><tr><th>Typ</th><th>ID</th><th>Informacja</th></tr></thead>
+                <tbody>
+                    {% for entry in log.details %}
+                        <tr>
+                            <td><span class="badge {{ entry.level|default('error') == 'warning' ? 'text-bg-warning' : 'text-bg-danger' }}">{{ entry.level|default('error') == 'warning' ? 'Pominięto' : 'Błąd' }}</span></td>
+                            <td class="text-nowrap">{{ entry.ticket_id|default('—') }}</td>
+                            <td>{{ entry.message|default('') }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+{% endif %}
+
+{% if log.technical_errors is not empty %}
+    <div class="card p-4">
+        <h2 class="h5">Szczegóły techniczne</h2>
+        <pre class="bg-light border rounded p-3 mb-0 text-wrap">{{ log.technical_errors|join("\n") }}</pre>
+    </div>
+{% endif %}
+{% endblock %}

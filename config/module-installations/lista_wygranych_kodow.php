@@ -1,0 +1,80 @@
+<?php
+
+return [
+    'key' => 'lista_wygranych_kodow',
+    'module' => [
+        'label' => 'Kody',
+        'type' => 'list',
+        'menu' => [
+            'icon' => 'bi-award',
+            'position' => 29,
+        ],
+        'fields' => [
+            ['name' => 'pickup_code', 'label' => 'Kod', 'type' => 'text'],
+            ['name' => 'kod_ean', 'label' => 'Kod ean', 'type' => 'checkbox'],
+            ['name' => 'code_128', 'label' => 'Code-128', 'type' => 'checkbox'],
+            [
+                'name' => 'wartosc_kodu',
+                'label' => 'Wartość kodu',
+                'type' => 'text',
+            ],
+            ['name' => 'kod_wykorzystany', 'label' => 'Kod wykorzystany', 'type' => 'boolean_select'],
+            [
+                'name' => 'kod_przyznany_do_zgloszenia',
+                'label' => 'Kod przyznany do zgłoszenia',
+                'type' => 'relation',
+                'module' => 'loteria_zgloszenia',
+                'label_field' => 'id',
+                'label_prefix' => 'Zgłoszenie ',
+                'remote' => true,
+                'multiple' => false,
+            ],
+            [
+                'name' => 'kod_przyznany_do_zdrapki',
+                'label' => 'Kod przyznany do zdrapki',
+                'type' => 'relation',
+                'module' => 'loteria_zdrapki',
+                'label_field' => 'ticket_id',
+                'label_prefix' => 'Zdrapka ',
+                'remote' => true,
+                'multiple' => false,
+            ],
+            [
+                'name' => 'kod_przyznany_do_zwyciezcy',
+                'label' => 'Kod przyznany do zwycięzcy',
+                'type' => 'relation',
+                'module' => 'zwyciezcy',
+                'label_field' => 'email',
+                'label_prefix' => 'Zwycięzca ',
+                'remote' => true,
+                'multiple' => false,
+            ],
+            ['name' => 'data_i_godzina_przyznania', 'label' => 'Data i godzina przyznania', 'type' => 'datetime'],
+            ['name' => 'uwagi', 'label' => 'Uwagi', 'type' => 'textarea'],
+        ],
+        'list' => [
+            'columns' => [
+                'pickup_code',
+                'kod_ean',
+                'code_128',
+                'wartosc_kodu',
+                'kod_wykorzystany',
+                'kod_przyznany_do_zgloszenia',
+                'kod_przyznany_do_zdrapki',
+                'kod_przyznany_do_zwyciezcy',
+                'data_i_godzina_przyznania',
+            ],
+            'filters' => [],
+'actions' => ['view', 'edit', 'delete'],
+            'permissions' => ['view', 'create', 'edit', 'delete'],
+            'stats_enabled' => true,
+        ],
+    ],
+    'database' => [
+        'table' => 'lista_wygranych_kodow_entries',
+    ],
+    'permission' => [
+        'code' => 'lista_wygranych_kodow',
+        'label' => 'Kody',
+    ],
+];

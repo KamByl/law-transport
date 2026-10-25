@@ -1,0 +1,225 @@
+{% extends 'layout/base.html.twig' %}
+{% set body_class = 'admin-body' %}
+
+{% block body %}
+<div class="admin-layout" id="wrapper">
+    <nav class="admin-sidebar">
+        <div class="admin-brand">
+            <div class="brand-icon"><i class="bi bi-grid-1x2-fill"></i></div>
+            <div>
+                <div class="brand-title">{{ appName|default('CMS2') }}</div>
+                <div class="brand-subtitle">Panel administracyjny</div>
+            </div>
+            <button class="btn btn-sm btn-light admin-close" type="button" id="sidebarClose">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <div class="admin-menu">
+            {% set canViewUsers = permissionService.can(user, 'users', 'view') %}
+            {% set canViewGroups = permissionService.can(user, 'groups', 'view') %}
+            {% set canViewPermissions = permissionService.can(user, 'permissions', 'view') %}
+            {% set canViewLoginLogs = permissionService.can(user, 'login_logs', 'view') %}
+            {% set canViewModuleChangeLogs = permissionService.can(user, 'module_change_logs', 'view') %}
+            {% set canViewSmsLogs = permissionService.can(user, 'sms_logs', 'view') %}
+            {% set canViewErrorLogs = permissionService.can(user, 'error_logs', 'view') %}
+            {% set canViewInstallDb = permissionService.can(user, 'install_db', 'view') %}
+            {% set canViewSystemSettings = permissionService.can(user, 'system_settings', 'view') %}
+            {% set canViewSiteSettings = permissionService.can(user, 'settings', 'view') %}
+            {% set canViewLotterySettings = permissionService.can(user, 'loteria_ustawienia', 'view') %}
+            {% set currentPath = app.request.pathinfo|default('') %}
+            <div class="menu-group" data-menu-group="glowne">
+                <button class="menu-group-toggle" type="button" aria-expanded="true">
+                    <span class="menu-label">Główne</span>
+                    <i class="bi bi-chevron-down"></i>
+                </button>
+                <div class="menu-group-items">
+                    <a class="menu-link" href="/cms"><i class="bi bi-speedometer2"></i><span>Dashboard</span></a>
+                    <a class="menu-link" href="/"><i class="bi bi-globe2"></i><span>Frontend</span></a>
+                </div>
+            </div>
+            {% if menuModuleGroups is defined and menuModuleGroups %}
+                {% for group in menuModuleGroups %}
+                    {% set groupKey = group.key|default(group.label|default('moduly')|lower|replace({' ': '-', 'ą': 'a', 'ć': 'c', 'ę': 'e', 'ł': 'l', 'ń': 'n', 'ó': 'o', 'ś': 's', 'ż': 'z', 'ź': 'z'})) %}
+                    <div class="menu-group" data-menu-group="{{ groupKey }}">
+                        <button class="menu-group-toggle" type="button" aria-expanded="true">
+                            <span class="menu-label">{{ group.label|default('Moduły') }}</span>
+                            <i class="bi bi-chevron-down"></i>
+                        </button>
+                        <div class="menu-group-items">
+                            {% for key, module in group.modules %}
+                                <a class="menu-link" href="{{ module.menu.url|default('/cms/modules/' ~ key) }}">
+                                    <i class="bi {{ module.menu.icon|default('bi-grid-3x3-gap') }}"></i>
+                                    <span>{{ module.label|default(key) }}</span>
+                                </a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endfor %}
+            {% elseif menuModules is defined and menuModules %}
+                <div class="menu-group" data-menu-group="moduly">
+                    <button class="menu-group-toggle" type="button" aria-expanded="true">
+                        <span class="menu-label">Moduły</span>
+                        <i class="bi bi-chevron-down"></i>
+                    </button>
+                    <div class="menu-group-items">
+                        {% for key, module in menuModules %}
+                            <a class="menu-link" href="{{ module.menu.url|default('/cms/modules/' ~ key) }}">
+                                <i class="bi {{ module.menu.icon|default('bi-grid-3x3-gap') }}"></i>
+                                <span>{{ module.label|default(key) }}</span>
+                            </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+            <div class="menu-group" data-menu-group="zarzadzanie">
+                <button class="menu-group-toggle" type="button" aria-expanded="true">
+                    <span class="menu-label">Zarządzanie</span>
+                    <i class="bi bi-chevron-down"></i>
+                </button>
+                <div class="menu-group-items">
+                    {% if canViewUsers %}
+                        <a class="menu-link" href="/cms/users"><i class="bi bi-people"></i><span>Użytkownicy</span></a>
+                    {% endif %}
+                    {% if canViewGroups %}
+                        <a class="menu-link" href="/cms/groups"><i class="bi bi-collection"></i><span>Grupy</span></a>
+                    {% endif %}
+                    {% if canViewPermissions %}
+                        <a class="menu-link" href="/cms/permissions"><i class="bi bi-shield-lock"></i><span>Uprawnienia</span></a>
+                    {% endif %}
+                    {% if canViewLoginLogs %}
+                        <a class="menu-link" href="/cms/login-logs"><i class="bi bi-clock-history"></i><span>Logi logowań</span></a>
+                    {% endif %}
+                    {% if canViewModuleChangeLogs %}
+                        <a class="menu-link" href="/cms/module-change-logs"><i class="bi bi-journal-text"></i><span>Logi zmian</span></a>
+                    {% endif %}
+                    {% if canViewSmsLogs %}
+                        <a class="menu-link" href="/cms/sms-logs"><i class="bi bi-chat-left-text"></i><span>Logi SMS</span></a>
+                    {% endif %}
+                    {% if canViewErrorLogs %}
+                        <a class="menu-link" href="/cms/error-logs"><i class="bi bi-bug"></i><span>Logi błędów</span></a>
+                    {% endif %}
+                    {% if canViewInstallDb %}
+                        <a class="menu-link" href="/cms/install"><i class="bi bi-database"></i><span>Instalacja DB</span></a>
+                    {% endif %}
+                    <a class="menu-link" href="/cms/logout"><i class="bi bi-box-arrow-right"></i><span>Wyloguj</span></a>
+                </div>
+            </div>
+        </div>
+    </nav>
+    <div class="admin-content">
+        <header class="admin-topbar">
+            <button class="btn btn-light admin-toggle" id="sidebarToggle"><i class="bi bi-list"></i></button>
+            <div class="admin-search d-none d-md-flex">
+                <i class="bi bi-search"></i>
+                <input type="text" class="form-control form-control-sm" placeholder="Szukaj w panelu">
+            </div>
+            <div class="dropdown ms-auto">
+                <button class="admin-user btn btn-link text-decoration-none p-0 border-0" type="button" id="userMenuDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                    <div class="avatar">{{ user.firstName|default('U')|slice(0, 1) }}</div>
+                    <div class="user-info">
+                        <span class="user-name">{{ user.firstName|default('Użytkownik') }}</span>
+                        {% set userGroup = user.groups|first %}
+                        <span class="user-role">{{ userGroup ? userGroup.name : 'Brak grupy' }}</span>
+                    </div>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userMenuDropdown">
+                    {% if impersonatorUser %}
+                        <li class="px-3 py-2">
+                            <div class="small text-muted mb-2">Przelogowano przez {{ impersonatorUser.firstName }} {{ impersonatorUser.lastName }}</div>
+                            <form method="post" action="/cms/users/impersonate/stop" onsubmit="return confirm('Czy na pewno chcesz wrócić na swoje konto?');">
+                                {% include 'backend/_csrf_token.html.twig' %}
+                                <button class="btn btn-sm btn-outline-danger w-100" type="submit">Wróć na swoje konto</button>
+                            </form>
+                        </li>
+                        <li><hr class="dropdown-divider"></li>
+                    {% endif %}
+                    <li><a class="dropdown-item" href="/cms/profile">Profil i zmiana hasła</a></li>
+                    <li><a class="dropdown-item" href="/cms/dashboard/preferences">Ustawienia dashboardu</a></li>
+                    <li><a class="dropdown-item" href="/cms/menu/preferences">Ustawienia lewego menu</a></li>
+                    <li><a class="dropdown-item" href="/cms/logout">Wyloguj się</a></li>
+                    {% if impersonatableUsers is defined and impersonatableUsers|length %}
+                        <li><hr class="dropdown-divider"></li>
+                        <li class="px-3 py-2">
+                            <div class="small text-muted mb-2">Przeloguj się na użytkownika</div>
+                            <form method="post" class="impersonate-form" data-impersonate-base="/cms/users">
+                                {% include 'backend/_csrf_token.html.twig' %}
+                                <div class="mb-2">
+                                    <select class="form-select form-select-sm" name="impersonate_user" required>
+                                        <option value="">Wybierz użytkownika</option>
+                                        {% for candidate in impersonatableUsers %}
+                                            <option value="{{ candidate.id }}">
+                                                {{ candidate.firstName }} {{ candidate.lastName }} ({{ candidate.email }})
+                                            </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <button class="btn btn-sm btn-outline-primary w-100" type="submit">Przeloguj się</button>
+                            </form>
+                        </li>
+                    {% endif %}
+                </ul>
+            </div>
+        </header>
+        <main class="admin-main">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</div>
+
+<script>
+    const adminCsrfToken = {{ csrf_token|json_encode|raw }};
+    const toggleButton = document.getElementById('sidebarToggle');
+    const closeButton = document.getElementById('sidebarClose');
+    const wrapper = document.getElementById('wrapper');
+    if (toggleButton && wrapper) {
+        toggleButton.addEventListener('click', () => {
+            wrapper.classList.toggle('toggled');
+        });
+    }
+    if (closeButton && wrapper) {
+        closeButton.addEventListener('click', () => {
+            wrapper.classList.remove('toggled');
+        });
+    }
+    const impersonateForm = document.querySelector('.impersonate-form');
+    if (impersonateForm) {
+        impersonateForm.addEventListener('submit', (event) => {
+            const select = impersonateForm.querySelector('select[name="impersonate_user"]');
+            if (!select || !select.value) {
+                event.preventDefault();
+                return;
+            }
+            if (!confirm('Czy na pewno chcesz przelogować się na tego użytkownika?')) {
+                event.preventDefault();
+                return;
+            }
+            const base = impersonateForm.dataset.impersonateBase || '/cms/users';
+            impersonateForm.action = `${base}/${select.value}/impersonate`;
+        });
+    }
+    document.querySelectorAll('.menu-group').forEach((group) => {
+        const toggle = group.querySelector('.menu-group-toggle');
+        const storageKey = group.dataset.menuGroup ? `cms2-menu-group-${group.dataset.menuGroup}` : null;
+        if (!toggle) {
+            return;
+        }
+
+        const setExpanded = (isExpanded) => {
+            group.classList.toggle('collapsed', !isExpanded);
+            toggle.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+        };
+
+        const initialExpanded = storageKey ? localStorage.getItem(storageKey) !== 'collapsed' : true;
+        setExpanded(initialExpanded);
+
+        toggle.addEventListener('click', () => {
+            const isExpanded = toggle.getAttribute('aria-expanded') === 'true';
+            const nextExpanded = !isExpanded;
+            setExpanded(nextExpanded);
+            if (storageKey) {
+                localStorage.setItem(storageKey, nextExpanded ? 'expanded' : 'collapsed');
+            }
+        });
+    });
+</script>
+{% endblock %}

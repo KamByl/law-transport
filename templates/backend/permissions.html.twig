@@ -1,0 +1,85 @@
+{% extends 'layout/backend.html.twig' %}
+
+{% block content %}
+{% set canCreate = permissionService.can(user, 'permissions', 'create') %}
+{% set canEdit = permissionService.can(user, 'permissions', 'edit') %}
+{% set canDelete = permissionService.can(user, 'permissions', 'delete') %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="h3 mb-1">Uprawnienia</h1>
+        <p class="text-muted mb-0">Zarządzaj listą uprawnień oraz przypisaniami do grup i użytkowników.</p>
+    </div>
+    {% if canCreate %}
+        <a class="btn btn-primary" href="/cms/permissions/create">Dodaj uprawnienie</a>
+    {% endif %}
+</div>
+
+<div class="card p-4">
+    <form class="row g-2 align-items-center mb-3" method="get" action="/cms/permissions">
+        <div class="col-sm-6 col-md-4">
+            <input class="form-control" type="search" name="q" value="{{ query }}" placeholder="Szukaj uprawnienia">
+        </div>
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="dir" value="{{ dir }}">
+        <div class="col-auto">
+            <button class="btn btn-outline-primary" type="submit">Szukaj</button>
+        </div>
+        {% if query %}
+            <div class="col-auto">
+                <a class="btn btn-outline-secondary" href="/cms/permissions">Wyczyść</a>
+            </div>
+        {% endif %}
+    </form>
+
+    {% set queryPrefix = query ? ('?q=' ~ query|url_encode ~ '&') : '?' %}
+    {% set idDir = sort == 'id' and dir == 'asc' ? 'desc' : 'asc' %}
+    {% set codeDir = sort == 'code' and dir == 'asc' ? 'desc' : 'asc' %}
+    {% set labelDir = sort == 'label' and dir == 'asc' ? 'desc' : 'asc' %}
+    <table class="table table-hover align-middle">
+        <thead>
+            <tr>
+                <th>
+                    <a href="{{ queryPrefix }}sort=id&dir={{ idDir }}" class="text-decoration-none">
+                        ID{% if sort == 'id' %} {{ dir == 'asc' ? '↑' : '↓' }}{% endif %}
+                    </a>
+                </th>
+                <th>
+                    <a href="{{ queryPrefix }}sort=label&dir={{ labelDir }}" class="text-decoration-none">
+                        Nazwa{% if sort == 'label' %} {{ dir == 'asc' ? '↑' : '↓' }}{% endif %}
+                    </a>
+                </th>
+                <th>
+                    <a href="{{ queryPrefix }}sort=code&dir={{ codeDir }}" class="text-decoration-none">
+                        Kod{% if sort == 'code' %} {{ dir == 'asc' ? '↑' : '↓' }}{% endif %}
+                    </a>
+                </th>
+                <th class="text-end">Akcje</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for permission in permissions %}
+                <tr>
+                    <td>{{ permission.id }}</td>
+                    <td>{{ permission.label }}</td>
+                    <td>{{ permission.code }}</td>
+                    <td class="text-end">
+                        {% if canEdit %}
+                            <a class="btn btn-sm btn-outline-primary" href="/cms/permissions/{{ permission.id }}/edit">Edytuj</a>
+                        {% endif %}
+                        {% if canDelete %}
+                            <form method="post" action="/cms/permissions/{{ permission.id }}/delete" class="d-inline" onsubmit="return confirm('Czy na pewno chcesz usunąć to uprawnienie?');">
+                                {% include 'backend/_csrf_token.html.twig' %}
+                                <button class="btn btn-sm btn-outline-danger" type="submit">Usuń</button>
+                            </form>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="4" class="text-center text-muted">Brak uprawnień do wyświetlenia.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

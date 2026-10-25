@@ -1,0 +1,187 @@
+{% extends 'layout/backend.html.twig' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="h3 mb-1">Sprawdź paragony</h1>
+        <p class="text-muted mb-0">Weryfikacja zgłoszeń zwycięzców oznaczonych jako „AI Sprawdzone - niepoprawnie”.</p>
+        <p class="text-muted mb-0">Oczekujące paragony do weryfikacji: {{ pendingCount }} (po filtrach: {{ filteredCount }})</p>
+    </div>
+</div>
+
+<div class="card p-4">
+    {% if alert %}
+        <div class="alert alert-{{ alert.type }} mb-3">{{ alert.message }}</div>
+    {% endif %}
+
+    {% if winner %}
+        <a href="{{ path('cms_receipt_verification', listQueryParams|default({})) }}" class="btn btn-outline-secondary btn-sm mb-3">← Wróć do listy zgłoszeń</a>
+        <dl class="row mb-0">
+            <dt class="col-md-4">Numer zwycięzcy (ID)</dt>
+            <dd class="col-md-8">{{ winner.id|default('—') }}</dd>
+
+            <dt class="col-md-4">Które Centrum handlowe</dt>
+            <dd class="col-md-8">
+                {{ winner.centerName|default('—') }}
+                {% if winner.centerAddress is defined and winner.centerAddress is not empty %}
+                    ({{ winner.centerAddress }})
+                {% endif %}
+            </dd>
+
+            <dt class="col-md-4">Który sklep</dt>
+            <dd class="col-md-8">{{ winner.storeDisplayName|default('KARTOMAT') }}</dd>
+
+            <dt class="col-md-4">Adres e-mail zgłoszenia</dt>
+            <dd class="col-md-8">{{ winner.submissionEmail|default('—') }}</dd>
+
+            <dt class="col-md-4">Kod sprzedawcy</dt>
+            <dd class="col-md-8">
+                {% if winner.sellerCode %}
+                    Tak ({{ winner.sellerCode }})
+                {% else %}
+                    Nie
+                {% endif %}
+            </dd>
+
+            <dt class="col-md-4">Ilość losów ze zgłoszenia</dt>
+            <dd class="col-md-8">{{ winner.ticketCountForSubmission }}</dd>
+
+            <dt class="col-md-4">Automatyczna weryfikacja (OpenAI)</dt>
+            {% set autoVerificationStatus = winner.automaticVerificationStatus|default('')|trim %}
+            {% set autoVerificationClass = autoVerificationStatus == 'Pozytywnie' ? 'text-success fw-semibold' : (autoVerificationStatus == 'Negatywnie' ? 'text-danger fw-semibold' : '') %}
+            <dd class="col-md-8 {{ autoVerificationClass }}" style="white-space: pre-wrap;">{{ winner.automaticVerificationStatus }}</dd>
+
+            <dt class="col-md-4">Numer paragonu</dt>
+            <dd class="col-md-8">{{ winner.numer_dowodu_zakupu|default('—') }}</dd>
+
+            <dt class="col-md-4">Kwota na paragonie</dt>
+            <dd class="col-md-8">{{ winner.kwota_z_rachunku is not empty ? winner.kwota_z_rachunku : '—' }}</dd>
+
+            <dt class="col-md-4">Data i godzina zgłoszenia</dt>
+            <dd class="col-md-8">{{ winner.zgloszenie_wypelnione_at|default('—') }}</dd>
+
+            <dt class="col-md-4">Notatka z AI</dt>
+            <dd class="col-md-8" style="white-space: pre-wrap;">{{ winner.notatka_ai|default('—') }}</dd>
+
+            <dt class="col-md-4">Zdjęcie paragonu</dt>
+            <dd class="col-md-8">
+                {% if winner.rachunek %}
+                    <a href="{{ winner.rachunek }}" target="_blank" rel="noopener" class="d-inline-block mb-2">Otwórz zdjęcie w nowej karcie</a>
+                    <div>
+                        <img src="{{ winner.rachunek }}" alt="Paragon" style="display: block; width: 100%; max-width: 100%; height: auto; border-radius: 0.5rem; border: 1px solid #dee2e6;">
+                    </div>
+                {% else %}
+                    —
+                {% endif %}
+            </dd>
+        </dl>
+        {% if winner.otherWinningScratchcardNotice %}
+            <p class="text-danger fw-semibold mt-3 mb-0">{{ winner.otherWinningScratchcardNotice }}</p>
+        {% endif %}
+
+        <hr class="my-4">
+
+        <form method="post" action="/cms/sprawdz-paragony/zapisz" onsubmit="return confirm('Czy na pewno chcesz zapisać dane?');">
+            {% include 'backend/_csrf_token.html.twig' %}
+            <input type="hidden" name="winner_id" value="{{ winner.id }}">
+            {% for paramName, paramValue in listQueryParams|default({}) %}
+                <input type="hidden" name="{{ paramName }}" value="{{ paramValue }}">
+            {% endfor %}
+            <div class="mb-3">
+                <label for="komentarz-uzytkownika" class="form-label">Komentarz użytkownika sprawdzającego</label>
+                <textarea
+                    id="komentarz-uzytkownika"
+                    name="komentarz_uzytkownika"
+                    class="form-control"
+                    rows="3"
+                    placeholder="Dodaj komentarz do zapisania w module Zwycięzcy">{{ winner.komentarz_uzytkownika|default('') }}</textarea>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-success" type="submit" name="decision" value="valid">Paragon poprawny</button>
+                <button class="btn btn-danger" type="submit" name="decision" value="invalid">Paragon niepoprawny</button>
+                <button class="btn btn-warning" type="submit" name="decision" value="verify">Do weryfikacji</button>
+            </div>
+        </form>
+    {% else %}
+        <form method="get" action="/cms/sprawdz-paragony" class="row g-3 mb-4">
+            <div class="col-md-4">
+                <label for="filtr-centrum-handlowe" class="form-label">Centrum handlowe</label>
+                <select id="filtr-centrum-handlowe" name="centrum_handlowe" class="form-select">
+                    <option value="">Wszystkie</option>
+                    {% for centerOption in listFilters.options.centers|default([]) %}
+                        <option value="{{ centerOption.value }}" {% if centerOption.value == listFilters.selected.center %}selected{% endif %}>{{ centerOption.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label for="filtr-sklep" class="form-label">Sklep (z centrum)</label>
+                <select id="filtr-sklep" name="sklep" class="form-select">
+                    <option value="">Wszystkie</option>
+                    {% for storeOption in listFilters.options.stores|default([]) %}
+                        <option value="{{ storeOption.value }}" {% if storeOption.value == listFilters.selected.store %}selected{% endif %}>{{ storeOption.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label for="filtr-weryfikacja-ai" class="form-label">Weryfikacja AI</label>
+                <select id="filtr-weryfikacja-ai" name="weryfikacja_ai" class="form-select">
+                    <option value="">Wszystkie</option>
+                    <option value="Pozytywnie" {% if listFilters.selected.aiVerification == 'Pozytywnie' %}selected{% endif %}>Pozytywnie</option>
+                    <option value="Negatywnie" {% if listFilters.selected.aiVerification == 'Negatywnie' %}selected{% endif %}>Negatywnie</option>
+                </select>
+            </div>
+            <div class="col-12 d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm">Filtruj</button>
+                <a href="/cms/sprawdz-paragony?reset=1" class="btn btn-outline-secondary btn-sm">Wyczyść filtry</a>
+            </div>
+        </form>
+
+        {% if winners %}
+            {% set currentSort = listFilters.selected.sort|default('') %}
+            {% set currentDirection = listFilters.selected.direction|default('asc') %}
+            {% set queryParams = app.request.query.all|default({}) %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            {% set idDirection = currentSort == 'id' and currentDirection == 'asc' ? 'desc' : 'asc' %}
+                            <th><a href="{{ path('cms_receipt_verification', queryParams|merge({sort: 'id', direction: idDirection})) }}">ID{% if currentSort == 'id' %} {{ currentDirection == 'asc' ? '↑' : '↓' }}{% endif %}</a></th>
+                            {% set centerDirection = currentSort == 'center' and currentDirection == 'asc' ? 'desc' : 'asc' %}
+                            <th><a href="{{ path('cms_receipt_verification', queryParams|merge({sort: 'center', direction: centerDirection})) }}">Centrum handlowe{% if currentSort == 'center' %} {{ currentDirection == 'asc' ? '↑' : '↓' }}{% endif %}</a></th>
+                            {% set storeDirection = currentSort == 'store' and currentDirection == 'asc' ? 'desc' : 'asc' %}
+                            <th><a href="{{ path('cms_receipt_verification', queryParams|merge({sort: 'store', direction: storeDirection})) }}">Sklep{% if currentSort == 'store' %} {{ currentDirection == 'asc' ? '↑' : '↓' }}{% endif %}</a></th>
+                            {% set emailDirection = currentSort == 'email' and currentDirection == 'asc' ? 'desc' : 'asc' %}
+                            <th><a href="{{ path('cms_receipt_verification', queryParams|merge({sort: 'email', direction: emailDirection})) }}">E-mail zgłoszenia{% if currentSort == 'email' %} {{ currentDirection == 'asc' ? '↑' : '↓' }}{% endif %}</a></th>
+                            {% set filledDateDirection = currentSort == 'filledDate' and currentDirection == 'asc' ? 'desc' : 'asc' %}
+                            <th><a href="{{ path('cms_receipt_verification', queryParams|merge({sort: 'filledDate', direction: filledDateDirection})) }}">Data wypełnienia{% if currentSort == 'filledDate' %} {{ currentDirection == 'asc' ? '↑' : '↓' }}{% endif %}</a></th>
+                            {% set aiDirection = currentSort == 'aiVerification' and currentDirection == 'asc' ? 'desc' : 'asc' %}
+                            <th><a href="{{ path('cms_receipt_verification', queryParams|merge({sort: 'aiVerification', direction: aiDirection})) }}">Weryfikacja AI{% if currentSort == 'aiVerification' %} {{ currentDirection == 'asc' ? '↑' : '↓' }}{% endif %}</a></th>
+                            {% set submissionDateDirection = currentSort == 'submissionDate' and currentDirection == 'asc' ? 'desc' : 'asc' %}
+                            <th><a href="{{ path('cms_receipt_verification', queryParams|merge({sort: 'submissionDate', direction: submissionDateDirection})) }}">Data wygranej{% if currentSort == 'submissionDate' %} {{ currentDirection == 'asc' ? '↑' : '↓' }}{% endif %}</a></th>
+                            <th class="text-end">Akcja</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for listWinner in winners %}
+                            <tr>
+                                <td>{{ listWinner.id|default('—') }}</td>
+                                <td>{{ listWinner.centerName|default('—') }}</td>
+                                <td>{{ listWinner.storeDisplayName|default('KARTOMAT') }}</td>
+                                <td>{{ listWinner.submissionEmail|default('—') }}</td>
+                                <td>{{ listWinner.zgloszenie_wypelnione_at|default('—') }}</td>
+                                <td style="white-space: pre-wrap;">{{ listWinner.automaticVerificationStatus|default('—') }}</td>
+                                <td>{{ listWinner.email_o_wygranej_wyslany_at|default('—') }}</td>
+                                <td class="text-end">
+                                    <a class="btn btn-primary btn-sm" href="{{ path('cms_receipt_verification', (listQueryParams|default({}))|merge({winner_id: listWinner.id})) }}">Weryfikuj</a>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="text-muted">Brak rekordów do sprawdzenia.</div>
+        {% endif %}
+    {% endif %}
+</div>
+{% endblock %}

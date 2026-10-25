@@ -1,0 +1,132 @@
+{% extends 'layout/backend.html.twig' %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
+        <div>
+            <h1 class="h4 mb-1">Logi e-mail</h1>
+            <p class="text-muted mb-0">Historia wysłanych wiadomości e-mail przez system.</p>
+        </div>
+        <div class="d-flex flex-column flex-md-row align-items-md-center gap-2">
+            <form class="row g-2 align-items-center" method="get" action="/cms/email-logs">
+                <div class="col-12 col-md-auto">
+                    <input type="text" name="q" class="form-control form-control-sm" placeholder="Szukaj po odbiorcy, temacie, kontekście" value="{{ query }}">
+                </div>
+                <div class="col-12 col-md-auto">
+                    <input type="text" name="email" class="form-control form-control-sm" placeholder="Szukaj tylko po adresie e-mail" value="{{ emailQuery|default('') }}">
+                </div>
+                <div class="col-12 col-md-auto">
+                    <button class="btn btn-primary btn-sm" type="submit">Szukaj</button>
+                </div>
+            </form>
+            <a class="btn btn-outline-secondary btn-sm" href="?q={{ query|url_encode }}&email={{ emailQuery|default('')|url_encode }}&export=csv">Pobierz CSV</a>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Odbiorca</th>
+                            <th>Temat</th>
+                            <th>Użytkownik</th>
+                            <th>Email</th>
+                            <th>Kontekst</th>
+                            <th>Status</th>
+                            <th>Błąd</th>
+                            <th>IP</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in logs %}
+                            <tr class="email-log-row" data-email-log-row-id="{{ log.id }}" role="button" tabindex="0" aria-expanded="false">
+                                <td>
+                                    {% if log.sentAt %}
+                                        <div>{{ log.sentAt|date('Y-m-d') }}</div>
+                                        <div class="small text-muted">{{ log.sentAt|date('H:i:s') }}</div>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div>{{ log.recipient }}</div>
+                                    {% if log.bcc %}
+                                        <div class="small text-muted"><strong>UDW:</strong> {{ log.bcc }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div>{{ log.subject }}</div>
+                                </td>
+                                <td>
+                                    {% if log.user %}
+                                        {{ log.user.firstName }} {{ log.user.lastName }}
+                                    {% else %}
+                                        <span class="text-muted">System</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ log.email }}</td>
+                                <td>{{ log.context ?: '-' }}</td>
+                                <td>
+                                    {% if log.success %}
+                                        <span class="badge bg-success">OK</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">Błąd</span>
+                                    {% endif %}
+                                </td>
+                                <td class="small text-muted">{{ log.error|default('-') }}</td>
+                                <td class="small text-muted">{{ log.ipAddress|default('') }}</td>
+                            </tr>
+                            <tr class="email-log-details-row d-none bg-light" data-email-log-details-id="{{ log.id }}">
+                                <td colspan="9">
+                                    <div class="small text-muted mb-1"><strong>Treść wiadomości:</strong></div>
+                                    <pre class="mb-0 p-2 border rounded bg-white text-wrap" style="white-space: pre-wrap;">{{ log.body }}</pre>
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="9" class="text-center text-muted">Brak logów do wyświetlenia.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function () {
+        function toggleEmailLogDetails(row) {
+            const id = row.getAttribute('data-email-log-row-id');
+            if (!id) {
+                return;
+            }
+
+            const detailsRow = document.querySelector('[data-email-log-details-id="' + id + '"]');
+            if (!detailsRow) {
+                return;
+            }
+
+            const isHidden = detailsRow.classList.contains('d-none');
+            detailsRow.classList.toggle('d-none');
+            row.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+        }
+
+        document.querySelectorAll('.email-log-row').forEach(function (row) {
+            row.addEventListener('click', function () {
+                toggleEmailLogDetails(row);
+            });
+
+            row.addEventListener('keydown', function (event) {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    toggleEmailLogDetails(row);
+                }
+            });
+        });
+    }());
+</script>
+{% endblock %}

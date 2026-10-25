@@ -1,0 +1,160 @@
+{% if debugToolbar and debugToolbar.enabled %}
+    <div class="debug-toolbar" id="debugToolbar">
+        <div class="debug-toolbar__bar">
+            <button class="debug-toolbar__toggle" type="button" id="debugToolbarToggle">
+                <i class="bi bi-bug"></i>
+                Debug (#{{ debugToolbar.requestCounter|default(0) }}, SQL: {{ debugToolbar.queryCount }}, dump: {{ debugToolbar.dumpCount }})
+            </button>
+            <button class="debug-toolbar__close" type="button" id="debugToolbarClose" aria-label="Zamknij pasek debug">×</button>
+        </div>
+        <script type="application/json" id="debugToolbarPayload">{{ debugToolbar|json_encode|raw }}</script>
+        <div class="debug-toolbar__panel d-none" id="debugToolbarPanel">
+            <div class="debug-toolbar__section">
+                <h6>Licznik odświeżeń w sesji: {{ debugToolbar.requestCounter|default(0) }}</h6>
+            </div>
+            <div class="debug-toolbar__section">
+                <details>
+                    <summary>Zapytania SQL ({{ debugToolbar.queryCount }})</summary>
+                    {% if debugToolbar.queries is empty %}
+                        <div class="text-muted small mt-2">Brak zapytań SQL w tym żądaniu.</div>
+                    {% else %}
+                        <div class="mt-2">
+                            {% for query in debugToolbar.queries %}
+                                <div class="debug-toolbar__item">
+                                    <div class="small text-muted">{{ query.startedAt }}{% if query.durationMs is not null %} • {{ query.durationMs }} ms{% endif %}</div>
+                                    <pre>{{ query.sql }}</pre>
+                                    {% if query.params is not empty and query.params != '[]' %}
+                                        <div class="small text-muted">Parametry:</div>
+                                        <pre>{{ query.params }}</pre>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </details>
+            </div>
+            <div class="debug-toolbar__section">
+                <h6>dump() ({{ debugToolbar.dumpCount }})</h6>
+                {% if debugToolbar.dumps is empty %}
+                    <div class="text-muted small">Brak wpisów dump().</div>
+                {% else %}
+                    {% for entry in debugToolbar.dumps %}
+                        <div class="debug-toolbar__item">
+                            <div class="small text-muted">{{ entry.loggedAt }}{% if entry.label %} • {{ entry.label }}{% endif %}</div>
+                            <pre>{{ entry.payload }}</pre>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            </div>
+            <div class="debug-toolbar__section">
+                <h6>Poprzednie żądania</h6>
+                <div class="debug-toolbar__history text-muted small" id="debugToolbarHistory">
+                    Brak zapisanej historii.
+                </div>
+            </div>
+            <div class="debug-toolbar__section">
+                <h6>Redirecty z poprzedniego żądania</h6>
+                {% set redirectHistory = debugToolbar.redirectHistory|default([]) %}
+                {% if redirectHistory is empty %}
+                    <div class="text-muted small">Brak danych debug zapisanych przy redirectach.</div>
+                {% else %}
+                    {% for redirectEntry in redirectHistory|reverse %}
+                        <div class="debug-toolbar__item">
+                            <div class="small text-muted">
+                                {{ redirectEntry.loggedAt|date('H:i:s') }} • HTTP {{ redirectEntry.statusCode }} • {{ redirectEntry.path }}
+                            </div>
+                            <div class="small text-muted mb-1">
+                                SQL: {{ redirectEntry.payload.queryCount|default(0) }}, dump: {{ redirectEntry.payload.dumpCount|default(0) }}
+                            </div>
+                            {% if redirectEntry.payload.queries|default([]) is not empty %}
+                                <details class="mt-2">
+                                    <summary class="small">Zapytania SQL</summary>
+                                    <div class="mt-1">
+                                        {% for query in redirectEntry.payload.queries %}
+                                            <pre>{{ query.sql }}</pre>
+                                        {% endfor %}
+                                    </div>
+                                </details>
+                            {% endif %}
+                            {% if redirectEntry.payload.dumps|default([]) is not empty %}
+                                <div class="small text-muted">dump():</div>
+                                {% for entry in redirectEntry.payload.dumps %}
+                                    <div class="small text-muted">
+                                        {{ entry.loggedAt|default('') }}
+                                        {% if entry.label %} • {{ entry.label }}{% endif %}
+                                    </div>
+                                    <pre>{{ entry.payload }}</pre>
+                                {% endfor %}
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const debugToolbarToggle = document.getElementById('debugToolbarToggle');
+        const debugToolbarPanel = document.getElementById('debugToolbarPanel');
+        const debugToolbar = document.getElementById('debugToolbar');
+        const debugToolbarClose = document.getElementById('debugToolbarClose');
+        if (debugToolbarToggle && debugToolbarPanel) {
+            debugToolbarToggle.addEventListener('click', () => {
+                debugToolbarPanel.classList.toggle('d-none');
+            });
+        }
+        if (debugToolbar && debugToolbarClose) {
+            debugToolbarClose.addEventListener('click', () => {
+                debugToolbar.classList.add('d-none');
+            });
+        }
+        const debugPayloadNode = document.getElementById('debugToolbarPayload');
+        const debugHistoryNode = document.getElementById('debugToolbarHistory');
+        const debugHistoryStorageKey = 'cms2-debug-toolbar-history';
+        if (debugPayloadNode && debugHistoryNode) {
+            let currentPayload = null;
+            try {
+                currentPayload = JSON.parse(debugPayloadNode.textContent || '{}');
+            } catch (error) {
+                console.warn('Nie udało się odczytać danych debug.', error);
+            }
+
+            if (currentPayload && typeof currentPayload === 'object') {
+                let history = [];
+                try {
+                    const historyRaw = localStorage.getItem(debugHistoryStorageKey);
+                    history = historyRaw ? JSON.parse(historyRaw) : [];
+                } catch (error) {
+                    history = [];
+                }
+
+                const normalizedPath = `${window.location.pathname}${window.location.search}`;
+                history.push({
+                    path: normalizedPath,
+                    queryCount: Number(currentPayload.queryCount || 0),
+                    dumpCount: Number(currentPayload.dumpCount || 0),
+                    loggedAt: new Date().toISOString(),
+                });
+
+                const maxItems = 20;
+                history = history.slice(-maxItems);
+                localStorage.setItem(debugHistoryStorageKey, JSON.stringify(history));
+
+                const previousRequests = history.slice(0, -1).reverse();
+                if (previousRequests.length > 0) {
+                    debugHistoryNode.classList.remove('text-muted');
+                    debugHistoryNode.innerHTML = previousRequests.map((entry) => {
+                        const entryTime = new Date(entry.loggedAt);
+                        const prettyTime = Number.isNaN(entryTime.getTime())
+                            ? (entry.loggedAt || '')
+                            : entryTime.toLocaleTimeString('pl-PL');
+                        const entryPath = entry.path || '-';
+                        const sqlCount = Number(entry.queryCount || 0);
+                        const dumpCount = Number(entry.dumpCount || 0);
+                        return `<div class="debug-toolbar__history-item"><span class="text-muted">${prettyTime}</span> • ${entryPath}<br><span class="small">SQL: ${sqlCount}, dump: ${dumpCount}</span></div>`;
+                    }).join('');
+                }
+            }
+        }
+    </script>
+{% endif %}

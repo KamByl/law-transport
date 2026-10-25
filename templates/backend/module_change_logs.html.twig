@@ -1,0 +1,77 @@
+{% extends 'layout/backend.html.twig' %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
+        <div>
+            <h1 class="h4 mb-1">Logi zmian</h1>
+            <p class="text-muted mb-0">Historia zmian w modułach (kto, gdzie i kiedy).</p>
+        </div>
+        <form class="d-flex" method="get" action="/cms/module-change-logs">
+            <input type="text" name="q" class="form-control form-control-sm" placeholder="Szukaj po module, akcji, użytkowniku" value="{{ query }}">
+            <button class="btn btn-primary btn-sm ms-2" type="submit">Szukaj</button>
+        </form>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Użytkownik</th>
+                            <th>Email</th>
+                            <th>Moduł</th>
+                            <th>Akcja</th>
+                            <th>ID wpisu</th>
+                            <th>Zmiany</th>
+                            <th>IP</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in logs %}
+                            <tr>
+                                <td>{{ log.changedAt ? log.changedAt|date('Y-m-d H:i:s') : '' }}</td>
+                                <td>
+                                    {% if log.user %}
+                                        {{ log.user.firstName }} {{ log.user.lastName }}
+                                    {% else %}
+                                        <span class="text-muted">Nieznany</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ log.email }}</td>
+                                <td>{{ log.moduleKey }}</td>
+                                <td>{{ log.action }}</td>
+                                <td>{{ log.recordId is not null ? log.recordId : '-' }}</td>
+                                <td class="small">
+                                    {% set changes = log.changeSetData %}
+                                    {% if changes is not empty %}
+                                        <ul class="mb-0 ps-3">
+                                            {% for change in changes %}
+                                                <li>
+                                                    <strong>{{ change.label|default(change.field) }}</strong>:
+                                                    <span class="text-muted">{{ change.from is not null and change.from is not same as('') ? change.from : '-' }}</span>
+                                                    →
+                                                    <span>{{ change.to is not null and change.to is not same as('') ? change.to : '-' }}</span>
+                                                </li>
+                                            {% endfor %}
+                                        </ul>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td class="small text-muted">{{ log.ipAddress|default('') }}</td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="8" class="text-center text-muted">Brak logów do wyświetlenia.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

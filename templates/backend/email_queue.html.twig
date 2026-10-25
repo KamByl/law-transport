@@ -1,0 +1,209 @@
+{% extends 'layout/backend.html.twig' %}
+
+{% block content %}
+<div class="container-fluid">
+    {% if testEmailAlert %}
+        <div class="alert alert-{{ testEmailAlert.type }} mb-3">{{ testEmailAlert.message }}</div>
+    {% endif %}
+    {% if queueActionAlert %}
+        <div class="alert alert-{{ queueActionAlert.type }} mb-3">{{ queueActionAlert.message }}</div>
+    {% endif %}
+
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
+        <div>
+            <h1 class="h4 mb-1">Kolejka e-maili</h1>
+            <p class="text-muted mb-0">Podgląd wiadomości oczekujących i przetworzonych przez kolejkę wysyłki.</p>
+            <p class="text-muted small mb-0 mt-1">
+                Wszystkie: <strong>{{ allItemsCount }}</strong>
+                {% if query != '' or status != '' %}
+                    <span class="mx-1">|</span> Po filtrach: <strong>{{ filteredItemsCount }}</strong>
+                {% endif %}
+            </p>
+        </div>
+        <div class="d-flex flex-column flex-md-row gap-2 align-items-md-center">
+            {% if failedItemsCount > 0 %}
+                <form method="post" action="/cms/email-queue/retry-failed" onsubmit="return confirm('Ponownie dodać do kolejki wszystkie wiadomości FAILED? Zrób to dopiero po usunięciu blokady SMTP.');">
+                    {% include 'backend/_csrf_token.html.twig' %}
+                    <button class="btn btn-outline-danger btn-sm" type="submit">Ponów wszystkie FAILED ({{ failedItemsCount }})</button>
+                </form>
+            {% endif %}
+            <form class="d-flex flex-column flex-md-row gap-2" method="get" action="/cms/email-queue">
+                <input type="text" name="q" class="form-control form-control-sm" placeholder="Szukaj po odbiorcy, temacie, treści lub błędzie" value="{{ query }}">
+                <input type="text" name="email" class="form-control form-control-sm" placeholder="Szukaj tylko po adresie e-mail" value="{{ emailQuery|default('') }}">
+                <select name="status" class="form-select form-select-sm">
+                    <option value="">Wszystkie statusy</option>
+                    {% for option in statuses %}
+                        <option value="{{ option }}" {% if status == option %}selected{% endif %}>{{ option|upper }}</option>
+                    {% endfor %}
+                </select>
+                <input type="hidden" name="page" value="1">
+                <button class="btn btn-primary btn-sm" type="submit">Filtruj</button>
+            </form>
+            <a class="btn btn-outline-secondary btn-sm" href="?q={{ query|url_encode }}&email={{ emailQuery|default('')|url_encode }}&status={{ status|url_encode }}&export=csv">Pobierz CSV</a>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <h2 class="h6 mb-3">Wyślij testowy e-mail (bez kolejki)</h2>
+            <form class="row g-2 align-items-end" method="post" action="/cms/email-queue/test-send">
+                {% include 'backend/_csrf_token.html.twig' %}
+                <div class="col-12 col-md-8 col-lg-6">
+                    <label for="test-email-recipient" class="form-label mb-1">Adres e-mail</label>
+                    <input id="test-email-recipient" type="email" name="recipient" class="form-control" value="{{ testEmailRecipient }}" placeholder="np. test@example.com" required>
+                </div>
+                <div class="col-12 col-md-auto">
+                    <button type="submit" class="btn btn-outline-primary">Wyślij testowy e-mail</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2 small text-muted">
+                <span>Strona {{ page }} z {{ totalPages }}</span>
+                <span>Wyniki: {{ filteredItemsCount }}</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Data dodania</th>
+                            <th>Odbiorca</th>
+                            <th>Temat</th>
+                            <th>Status</th>
+                            <th>Priorytet</th>
+                            <th>Próby</th>
+                            <th>Dostępny od</th>
+                            <th>Wysłano</th>
+                            <th>Ostatni błąd</th>
+                            <th>Akcje</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in items %}
+                            <tr class="email-queue-row" data-email-row-id="{{ item.id }}" role="button" tabindex="0" aria-expanded="false">
+                                <td>{{ item.id }}</td>
+                                <td>{{ item.createdAt ? item.createdAt|date('Y-m-d H:i:s') : '-' }}</td>
+                                <td>
+                                    <div>{{ item.recipient }}</div>
+                                    {% if item.bcc %}
+                                        <div class="small text-muted"><strong>UDW:</strong> {{ item.bcc }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>{{ item.subject }}</td>
+                                <td>
+                                    {% set badgeClass = item.status == 'sent' ? 'bg-success' : (item.status == 'failed' ? 'bg-danger' : (item.status == 'processing' ? 'bg-warning text-dark' : 'bg-secondary')) %}
+                                    <span class="badge {{ badgeClass }}">{{ item.status|upper }}</span>
+                                </td>
+                                <td>
+                                    {% if item.priority %}
+                                        <span class="badge bg-primary">TAK</span>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ item.attempts }}/{{ item.maxAttempts }}</td>
+                                <td>{{ item.availableAt ? item.availableAt|date('Y-m-d H:i:s') : '-' }}</td>
+                                <td>{{ item.sentAt ? item.sentAt|date('Y-m-d H:i:s') : '-' }}</td>
+                                <td class="small text-muted">{{ item.lastError ?: '-' }}</td>
+                                <td>
+                                    {% if item.status == 'failed' %}
+                                        <form method="post" action="/cms/email-queue/{{ item.id }}/retry" onclick="event.stopPropagation();" onsubmit="return confirm('Ponownie dodać tę wiadomość do kolejki?');">
+                                            {% include 'backend/_csrf_token.html.twig' %}
+                                            <button class="btn btn-outline-primary btn-sm" type="submit">Ponów</button>
+                                        </form>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr class="email-queue-details-row d-none bg-light" data-email-details-id="{{ item.id }}">
+                                <td colspan="11">
+                                    <div class="small text-muted mb-1"><strong>Treść wiadomości:</strong></div>
+                                    <pre class="mb-0 p-2 border rounded bg-white text-wrap" style="white-space: pre-wrap;">{{ item.body }}</pre>
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="11" class="text-center text-muted">Brak wiadomości w kolejce dla wybranych filtrów.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if totalPages > 1 %}
+                {% set paginationQuery = 'q=' ~ query|url_encode ~ '&email=' ~ emailQuery|default('')|url_encode ~ '&status=' ~ status|url_encode %}
+                {% set startPage = (page - 2) > 1 ? (page - 2) : 1 %}
+                {% set endPage = (page + 2) < totalPages ? (page + 2) : totalPages %}
+                <nav class="mt-3" aria-label="Paginacja kolejki e-maili">
+                    <ul class="pagination justify-content-center flex-wrap mb-0">
+                        <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+                            <a class="page-link" href="?{{ paginationQuery }}&page={{ page - 1 }}" tabindex="-1" aria-disabled="{{ page <= 1 ? 'true' : 'false' }}">Poprzednia</a>
+                        </li>
+                        {% if startPage > 1 %}
+                            <li class="page-item">
+                                <a class="page-link" href="?{{ paginationQuery }}&page=1">1</a>
+                            </li>
+                            {% if startPage > 2 %}
+                                <li class="page-item disabled"><span class="page-link">…</span></li>
+                            {% endif %}
+                        {% endif %}
+                        {% for p in startPage..endPage %}
+                            <li class="page-item {% if p == page %}active{% endif %}">
+                                <a class="page-link" href="?{{ paginationQuery }}&page={{ p }}">{{ p }}</a>
+                            </li>
+                        {% endfor %}
+                        {% if endPage < totalPages %}
+                            {% if endPage < totalPages - 1 %}
+                                <li class="page-item disabled"><span class="page-link">…</span></li>
+                            {% endif %}
+                            <li class="page-item">
+                                <a class="page-link" href="?{{ paginationQuery }}&page={{ totalPages }}">{{ totalPages }}</a>
+                            </li>
+                        {% endif %}
+                        <li class="page-item {% if page >= totalPages %}disabled{% endif %}">
+                            <a class="page-link" href="?{{ paginationQuery }}&page={{ page + 1 }}" aria-disabled="{{ page >= totalPages ? 'true' : 'false' }}">Następna</a>
+                        </li>
+                    </ul>
+                </nav>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+    (function () {
+        function toggleEmailDetails(row) {
+            const id = row.getAttribute('data-email-row-id');
+            if (!id) {
+                return;
+            }
+
+            const detailsRow = document.querySelector('[data-email-details-id="' + id + '"]');
+            if (!detailsRow) {
+                return;
+            }
+
+            const isHidden = detailsRow.classList.contains('d-none');
+            detailsRow.classList.toggle('d-none');
+            row.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+        }
+
+        document.querySelectorAll('.email-queue-row').forEach(function (row) {
+            row.addEventListener('click', function () {
+                toggleEmailDetails(row);
+            });
+
+            row.addEventListener('keydown', function (event) {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    toggleEmailDetails(row);
+                }
+            });
+        });
+    }());
+</script>
+{% endblock %}
