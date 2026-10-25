@@ -1,0 +1,42 @@
+{% import 'app/_macros.html.twig' as ui %}
+<div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+    {{ ui.status(trip.status, ui.status_label(trip.status)) }}
+    {% if trip.numer %}<span class="text-muted small">nr {{ trip.numer }}</span>{% endif %}
+    {% if trip.zatwierdzil %}<span class="text-muted small"><i class="bi bi-patch-check me-1"></i>zatwierdził: {{ trip.zatwierdzil }}</span>{% endif %}
+</div>
+<div class="lt-route fs-5 mb-1">
+    <span>{{ trip.miejsce_wyjazdu ?: '—' }}</span><i class="bi bi-arrow-right"></i><span>{{ trip.miejsce_docelowe ?: '—' }}</span>
+</div>
+{% if trip.trasa %}<div class="text-muted small mb-2">przez: {{ trip.trasa }}</div>{% endif %}
+<div class="text-muted mb-3"><i class="bi bi-calendar-event me-1"></i>{{ ui.weekday(trip.data_od) }}, {{ ui.range(trip.data_od, trip.data_do) }}</div>
+
+{% for e in check.errors %}<div class="alert alert-danger py-2 small mb-2"><i class="bi bi-x-octagon me-1"></i>{{ e }}</div>{% endfor %}
+{% for w in check.warnings %}<div class="alert alert-warning py-2 small mb-2"><i class="bi bi-exclamation-triangle me-1"></i>{{ w }}</div>{% endfor %}
+
+<dl class="lt-dl mb-3">
+    <dt>Pojazd</dt>
+    <dd>{% if trip.pojazd %}<a href="/pojazdy/{{ trip.pojazd }}" class="text-decoration-none">{{ ui.plate(trip.pojazd_nr, trip.pojazd_rodzaj) }}</a> {{ trip.pojazd_marka }} {{ trip.pojazd_model }}{% else %}<span class="text-warning-emphasis">nie przydzielono</span>{% endif %}</dd>
+    <dt>Kierowca</dt>
+    <dd>{% if trip.kierowca %}<a href="/kierowcy/{{ trip.kierowca }}" class="text-decoration-none">{{ ui.driver_name(trip) }}</a>{% if trip.kierowca_telefon %} <a href="tel:{{ trip.kierowca_telefon }}" class="small ms-1"><i class="bi bi-telephone"></i> {{ trip.kierowca_telefon }}</a>{% endif %}{% else %}<span class="text-warning-emphasis">nie przydzielono</span>{% endif %}</dd>
+    <dt>Cel wyjazdu</dt><dd>{{ trip.cel }}</dd>
+    {% if trip.dowodca %}<dt>Dowódca / starszy</dt><dd>{{ trip.dowodca }}</dd>{% endif %}
+    {% if trip.zlecajacy %}<dt>Zlecający</dt><dd>{{ trip.zlecajacy }}</dd>{% endif %}
+    {% if trip.liczba_osob is not null %}<dt>Liczba osób</dt><dd>{{ trip.liczba_osob }}</dd>{% endif %}
+    {% if trip.ladunek %}<dt>Ładunek</dt><dd>{{ trip.ladunek }}</dd>{% endif %}
+    {% if trip.licznik_start is not null %}
+        <dt>Licznik</dt>
+        <dd>{{ trip.licznik_start|number_format(0, ',', ' ') }}{% if trip.licznik_stop is not null %} → {{ trip.licznik_stop|number_format(0, ',', ' ') }} <span class="text-muted">({{ (trip.licznik_stop - trip.licznik_start)|number_format(0, ',', ' ') }} km)</span>{% endif %}</dd>
+    {% endif %}
+    {% if trip.paliwo_start is not null or trip.paliwo_stop is not null %}
+        <dt>Paliwo</dt><dd>{{ trip.paliwo_start ?? '—' }} l → {{ trip.paliwo_stop ?? '—' }} l</dd>
+    {% endif %}
+    {% if trip.faktyczny_wyjazd %}<dt>Faktyczny wyjazd</dt><dd>{{ trip.faktyczny_wyjazd|date('d.m.Y H:i') }}</dd>{% endif %}
+    {% if trip.faktyczny_powrot %}<dt>Faktyczny powrót</dt><dd>{{ trip.faktyczny_powrot|date('d.m.Y H:i') }}</dd>{% endif %}
+</dl>
+{% if trip.uwagi %}<div class="small bg-light rounded p-2 mb-3" style="white-space: pre-line">{{ trip.uwagi }}</div>{% endif %}
+{% if fuel %}
+    <div class="lt-section-title">Tankowania w trasie</div>
+    <ul class="list-unstyled small mb-3">
+        {% for f in fuel %}<li><i class="bi bi-fuel-pump me-1"></i>{{ f.data|date('d.m H:i') }} · <strong>{{ f.ilosc }} l</strong>{% if f.nr_dokumentu %} · dok. {{ f.nr_dokumentu }}{% endif %}</li>{% endfor %}
+    </ul>
+{% endif %}

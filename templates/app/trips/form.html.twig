@@ -1,0 +1,11 @@
+{% extends 'app/layout.html.twig' %}
+{% block topbar_actions %}{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-xl-9">
+        <div class="lt-card"><div class="lt-card-body p-4">
+            {% include 'app/trips/_form.html.twig' %}
+        </div></div>
+    </div>
+</div>
+{% endblock %}

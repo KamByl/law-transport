@@ -1,0 +1,35 @@
+{% extends 'app/layout.html.twig' %}
+{% import 'app/_macros.html.twig' as ui %}
+{% block topbar_actions %}{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+    <span class="text-muted small">Pokaż terminy na najbliższe:</span>
+    {% for d in [30, 60, 90, 180] %}
+        <a href="/terminy?dni={{ d }}" class="btn btn-sm {{ days == d ? 'btn-primary' : 'btn-outline-secondary' }}">{{ d }} dni</a>
+    {% endfor %}
+    <span class="ms-auto small text-muted">Ostrzeżenie (żółte) od {{ warningDays }} dni przed terminem. Próg ustawia administrator w „Dane jednostki”.</span>
+</div>
+<div class="row g-3">
+    {% for type, label in {pojazd: 'Pojazdy', kierowca: 'Kierowcy'} %}
+        {% set list = items|filter(i => i.type == type) %}
+        <div class="col-lg-6">
+            <div class="lt-card h-100">
+                <div class="lt-card-header"><h2><i class="bi {{ type == 'pojazd' ? 'bi-truck' : 'bi-people' }} me-2 text-secondary"></i>{{ label }}</h2><span class="badge rounded-pill text-bg-light border">{{ list|length }}</span></div>
+                <div class="lt-card-body pt-2">
+                    {% for item in list %}
+                        <div class="lt-alert-item">
+                            {{ ui.days_badge(item.days, item.level) }}
+                            <div class="flex-grow-1">
+                                <a class="fw-semibold text-body text-decoration-none" href="/{{ type == 'pojazd' ? 'pojazdy' : 'kierowcy' }}/{{ item.id }}">{{ item.name }}</a>
+                                <div class="small text-muted">{{ item.label }} · ważne do {{ item.date|date('d.m.Y') }}</div>
+                            </div>
+                        </div>
+                    {% else %}
+                        <div class="lt-empty py-4"><i class="bi bi-check2-all"></i>Brak terminów w tym okresie.</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+</div>
+{% endblock %}

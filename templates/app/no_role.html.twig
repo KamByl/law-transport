@@ -1,0 +1,13 @@
+{% extends 'app/layout.html.twig' %}
+{% block content %}
+<div class="lt-card lt-empty">
+    <i class="bi bi-person-lock"></i>
+    {% if driverMissing|default(false) %}
+        <h2 class="h5">Twoje konto nie jest powiązane z kierowcą</h2>
+        <p class="mb-0">Poproś dyspozytora, żeby w karcie kierowcy wpisał Twój adres e-mail: <strong>{{ ctx.user.email }}</strong>.</p>
+    {% else %}
+        <h2 class="h5">Brak przypisanej roli</h2>
+        <p class="mb-0">Twoje konto nie ma jeszcze uprawnień. Administrator może dodać je do grupy <strong>Dyspozytorzy</strong>, <strong>Podgląd</strong> albo powiązać z kierowcą.</p>
+    {% endif %}
+</div>
+{% endblock %}

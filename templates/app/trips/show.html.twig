@@ -1,0 +1,45 @@
+{% extends 'app/layout.html.twig' %}
+{% import 'app/_macros.html.twig' as ui %}
+{% block page_title %}{{ trip.cel }}{% endblock %}
+{% block topbar_actions %}{% endblock %}
+{% block content %}
+<div class="mb-3"><a href="{{ back ?: (ctx.viewer ? '/wyjazdy' : '/moje-wyjazdy') }}" class="text-decoration-none small"><i class="bi bi-arrow-left me-1"></i>Wróć</a></div>
+<div class="row g-3">
+    <div class="col-lg-7">
+        <div class="lt-card"><div class="lt-card-body p-4">
+            {% include 'app/trips/_details.html.twig' %}
+            {% include 'app/trips/_actions.html.twig' %}
+        </div></div>
+    </div>
+    <div class="col-lg-5">
+        {% if (ctx.manager or isOwnTrip) and trip.status in ['zatwierdzony', 'w_realizacji'] %}
+            <div class="lt-card mb-3">
+                <div class="lt-card-header"><h2>{{ trip.status == 'zatwierdzony' ? 'Rozpoczęcie jazdy' : 'Zakończenie jazdy' }}</h2></div>
+                <div class="lt-card-body">
+                    {% include 'app/trips/_run.html.twig' with {odometer: vehicle.przebieg|default(''), fuelLevel: vehicle.stan_paliwa|default('')} %}
+                </div>
+            </div>
+        {% endif %}
+        {% if vehicle %}
+            <div class="lt-card mb-3">
+                <div class="lt-card-header"><h2>Pojazd</h2></div>
+                <div class="lt-card-body">
+                    <dl class="lt-dl small">
+                        <dt>Rodzaj</dt><dd>{{ vehicle.rodzaj == 'wojskowy' ? 'Wojskowy' : 'Cywilny' }}</dd>
+                        {% if vehicle.nr_ewidencyjny %}<dt>Nr ewidencyjny</dt><dd>{{ vehicle.nr_ewidencyjny }}</dd>{% endif %}
+                        <dt>Przebieg</dt><dd>{{ vehicle.przebieg is not null ? vehicle.przebieg|number_format(0, ',', ' ') ~ ' km' : '—' }}</dd>
+                        <dt>Norma zużycia</dt><dd>{{ vehicle.norma_zuzycia is not null ? vehicle.norma_zuzycia ~ ' l/100 km' : '—' }}</dd>
+                        <dt>Paliwo</dt><dd>{{ vehicle.rodzaj_paliwa ?: '—' }}</dd>
+                    </dl>
+                </div>
+            </div>
+        {% endif %}
+        {% if ctx.can.wyjazdy.delete and trip.status not in ['w_realizacji', 'zakonczony'] %}
+            <form method="post" action="/wyjazdy/{{ trip.id }}/usun" data-confirm="Usunąć wyjazd na stałe? Zwykle lepiej go anulować.">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <button class="btn btn-link text-danger small p-0"><i class="bi bi-trash me-1"></i>Usuń wyjazd</button>
+            </form>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

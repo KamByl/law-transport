@@ -1,0 +1,83 @@
+{% extends 'app/print/_layout.html.twig' %}
+{% import 'app/_macros.html.twig' as ui %}
+{% block pages %}
+{% set norm = vehicle.norma_zuzycia|default(0) %}
+{% set km = trip.licznik_start is not null and trip.licznik_stop is not null ? trip.licznik_stop - trip.licznik_start : null %}
+{% set refuel = fuel|reduce((sum, f) => sum + f.ilosc, 0) %}
+<div class="print-page">
+    {% include 'app/print/_head.html.twig' with {date: trip.data_od, right: 'Seria …… nr <strong>' ~ (trip.numer ?: '……') ~ '</strong>'} %}
+    <h1>KARTA DROGOWA</h1>
+    <div class="subtitle">pojazdu {{ vehicle and vehicle.rodzaj == 'cywilny' ? 'służbowego' : 'wojskowego' }} – ważna na wyjazd nr {{ trip.numer ?: '……' }}</div>
+
+    <table class="print-table kv4 mb-3">
+        <tr>
+            <td class="lbl">Pojazd</td><td>{{ vehicle ? vehicle.marka ~ ' ' ~ vehicle.model : '' }}</td>
+            <td class="lbl">Nr rej. / ewid.</td><td>{{ vehicle.nr_rejestracyjny|default('') }}{{ vehicle and vehicle.nr_ewidencyjny ? ' / ' ~ vehicle.nr_ewidencyjny : '' }}</td>
+        </tr>
+        <tr>
+            <td class="lbl">Kierowca</td><td>{{ driver ? ui.person(driver) : '' }}</td>
+            <td class="lbl">Prawo jazdy</td><td>kat. {{ driver.kategorie|default('…') }}</td>
+        </tr>
+        <tr>
+            <td class="lbl">Dowódca pojazdu</td><td>{{ trip.dowodca }}</td>
+            <td class="lbl">Rodzaj paliwa / norma</td><td>{{ vehicle.rodzaj_paliwa|default('') }}{{ norm ? ' / ' ~ norm ~ ' l/100 km' : '' }}</td>
+        </tr>
+        <tr><td class="lbl">Cel i trasa</td><td colspan="3">{{ trip.cel }}: {{ trip.miejsce_wyjazdu }}{{ trip.trasa ? ' – ' ~ trip.trasa : '' }} – {{ trip.miejsce_docelowe }}</td></tr>
+    </table>
+
+    <h2>Przebieg jazdy</h2>
+    <table class="print-table mb-3">
+        <tr><th style="width:5%">Lp.</th><th>Skąd</th><th>Dokąd</th><th style="width:11%">Godz. wyjazdu</th><th style="width:11%">Godz. przyjazdu</th><th style="width:12%">Licznik</th><th style="width:16%">Podpis i pieczęć dysponenta</th></tr>
+        <tr>
+            <td class="num">1</td><td>{{ trip.miejsce_wyjazdu }}</td><td>{{ trip.miejsce_docelowe }}</td>
+            <td>{{ trip.faktyczny_wyjazd ? trip.faktyczny_wyjazd|date('H:i') : '' }}</td><td></td>
+            <td class="num">{{ trip.licznik_start }}</td><td></td>
+        </tr>
+        {% for i in 2..5 %}<tr class="blank"><td class="num">{{ i }}</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>{% endfor %}
+        <tr>
+            <td class="num">6</td><td>{{ trip.miejsce_docelowe }}</td><td>{{ trip.miejsce_wyjazdu }}</td>
+            <td></td><td>{{ trip.faktyczny_powrot ? trip.faktyczny_powrot|date('H:i') : '' }}</td>
+            <td class="num">{{ trip.licznik_stop }}</td><td></td>
+        </tr>
+    </table>
+
+    <div class="row g-3">
+        <div class="col-6">
+            <h2>Licznik</h2>
+            <table class="print-table">
+                <tr><td class="lbl">Stan przy wyjeździe</td><td class="num">{{ trip.licznik_start is not null ? trip.licznik_start|number_format(0, ',', ' ') ~ ' km' : '' }}</td></tr>
+                <tr><td class="lbl">Stan przy powrocie</td><td class="num">{{ trip.licznik_stop is not null ? trip.licznik_stop|number_format(0, ',', ' ') ~ ' km' : '' }}</td></tr>
+                <tr><td class="lbl"><strong>Przejechano</strong></td><td class="num"><strong>{{ km is not null ? km|number_format(0, ',', ' ') ~ ' km' : '' }}</strong></td></tr>
+            </table>
+        </div>
+        <div class="col-6">
+            <h2>Paliwo [l]</h2>
+            <table class="print-table">
+                <tr><td class="lbl">Stan przy wyjeździe</td><td class="num">{{ trip.paliwo_start is not null ? trip.paliwo_start|number_format(2, ',', ' ') : '' }}</td></tr>
+                <tr><td class="lbl">Pobrano w trasie</td><td class="num">{{ fuel ? refuel|number_format(2, ',', ' ') : '' }}</td></tr>
+                <tr><td class="lbl">Stan przy powrocie</td><td class="num">{{ trip.paliwo_stop is not null ? trip.paliwo_stop|number_format(2, ',', ' ') : '' }}</td></tr>
+                <tr><td class="lbl">Zużycie rzeczywiste</td><td class="num">{{ trip.paliwo_start is not null and trip.paliwo_stop is not null ? (trip.paliwo_start + refuel - trip.paliwo_stop)|number_format(2, ',', ' ') : '' }}</td></tr>
+                <tr><td class="lbl">Zużycie wg normy</td><td class="num">{{ km is not null and norm ? (km * norm / 100)|number_format(2, ',', ' ') : '' }}</td></tr>
+            </table>
+        </div>
+    </div>
+
+    {% if fuel %}
+        <h2>Tankowania</h2>
+        <table class="print-table">
+            <tr><th>Data i godz.</th><th>Ilość [l]</th><th>Nr dokumentu</th><th>Licznik</th></tr>
+            {% for f in fuel %}<tr><td>{{ f.data|date('d.m.Y H:i') }}</td><td class="num">{{ f.ilosc }}</td><td>{{ f.nr_dokumentu }}</td><td class="num">{{ f.licznik }}</td></tr>{% endfor %}
+        </table>
+    {% endif %}
+
+    <h2>Uwagi kierowcy / stan techniczny po powrocie</h2>
+    <div style="border: 1px solid #000; min-height: 18mm; padding: 2mm; white-space: pre-line; font-size: 10pt">{{ trip.uwagi }}</div>
+
+    <div class="print-signs">
+        <div>Kierowca</div>
+        <div>Dyspozytor / wydający kartę</div>
+        <div>Rozliczający kartę</div>
+    </div>
+    {% include 'app/print/_foot.html.twig' %}
+</div>
+{% endblock %}

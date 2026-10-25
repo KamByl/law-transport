@@ -1,0 +1,117 @@
+{% extends 'app/layout.html.twig' %}
+{% import 'app/_macros.html.twig' as ui %}
+{% block topbar_actions %}{% endblock %}
+{% block content %}
+{% set today = 'now'|date('Y-m-d') %}
+
+{% if running %}
+    <div class="dr-current mb-3">
+        <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+            <span class="badge" style="background: var(--st-w_realizacji)"><i class="bi bi-broadcast me-1"></i>W trasie</span>
+            <span class="small" style="color: var(--lt-sand-300)">od {{ running.faktyczny_wyjazd ? running.faktyczny_wyjazd|date('H:i') : running.data_od|date('H:i') }}</span>
+        </div>
+        <h2 class="h4 fw-bold mb-1">{{ running.cel }}</h2>
+        <div class="lt-route mb-2"><span>{{ running.miejsce_wyjazdu ?: '—' }}</span><i class="bi bi-arrow-right"></i><span>{{ running.miejsce_docelowe ?: '—' }}</span></div>
+        <div class="lt-meta mb-3">
+            <span>{{ ui.plate(running.pojazd_nr, running.pojazd_rodzaj) }}</span>
+            <span><i class="bi bi-flag"></i>powrót {{ running.data_do|date('d.m H:i') }}</span>
+            <span><i class="bi bi-speedometer"></i>licznik start {{ running.licznik_start|number_format(0, ',', ' ') }} km</span>
+        </div>
+        <div class="bg-white text-body rounded-3 p-3">
+            {% include 'app/trips/_run.html.twig' with {trip: running, back: '/moje-wyjazdy'} %}
+        </div>
+    </div>
+{% endif %}
+
+<div class="lt-card mb-3">
+    <div class="lt-card-header"><h2><i class="bi bi-calendar-week me-2 text-secondary"></i>Mój grafik – 2 tygodnie</h2></div>
+    <div class="lt-card-body">
+        {% for chunk in week|batch(7) %}
+            <div class="dr-strip{{ not loop.last ? ' mb-2' : '' }}">
+                {% for key, day in chunk %}
+                    <div class="dr-strip-day{{ key == today ? ' is-today' : '' }}{{ key < today ? ' is-past' : '' }}">
+                        <div class="d">{{ ui.weekday(day.date, true) }}</div>
+                        <div class="n">{{ day.date|date('j') }}</div>
+                        {% for t in day.trips|slice(0, 2) %}<a href="/wyjazdy/{{ t.id }}" class="pill text-decoration-none" data-status="{{ t.status }}" title="{{ t.cel }}">{{ t.data_od|date('Y-m-d') == key ? t.data_od|date('H:i') : '↔' }}</a>{% endfor %}
+                        {% if day.trips|length > 2 %}<span class="small text-muted">+{{ day.trips|length - 2 }}</span>{% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endfor %}
+    </div>
+</div>
+
+<h2 class="lt-section-title">Najbliższe wyjazdy</h2>
+<div class="row g-3 mb-3">
+    {% for trip in next %}
+        <div class="col-md-6 col-xxl-4">
+            <div class="lt-card dr-next h-100">
+                <div class="d-flex gap-3">
+                    <div class="dr-date">
+                        <div class="m">{{ ui.month_name(trip.data_od, true)|slice(0, 3) }}</div>
+                        <div class="d">{{ trip.data_od|date('j') }}</div>
+                        <div class="w">{{ ui.weekday(trip.data_od, true) }}</div>
+                    </div>
+                    <div class="min-w-0 flex-grow-1">
+                        <div class="d-flex flex-wrap justify-content-between gap-1">
+                            <a href="/wyjazdy/{{ trip.id }}" class="fw-bold text-body text-decoration-none">{{ trip.cel }}</a>
+                            {{ ui.status(trip.status, ui.status_label(trip.status)) }}
+                        </div>
+                        <div class="small text-muted mt-1"><i class="bi bi-clock me-1"></i>{{ ui.range(trip.data_od, trip.data_do) }}</div>
+                        {% if trip.miejsce_docelowe %}<div class="small mt-1"><i class="bi bi-geo-alt me-1 text-muted"></i>{{ trip.miejsce_wyjazdu ? trip.miejsce_wyjazdu ~ ' → ' : '' }}{{ trip.miejsce_docelowe }}</div>{% endif %}
+                        <div class="mt-2 d-flex flex-wrap gap-2 align-items-center small">
+                            {{ ui.plate(trip.pojazd_nr, trip.pojazd_rodzaj) }}
+                            {% if trip.dowodca %}<span class="text-muted">dowódca: {{ trip.dowodca }}</span>{% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% if trip.status == 'zatwierdzony' and not running and trip.data_od|date('Y-m-d') <= 'now'|date_modify('+1 day')|date('Y-m-d') %}
+                    <hr class="my-1">
+                    {% set odo = vehicleOdometers[trip.pojazd]|default({}) %}
+                    {% include 'app/trips/_run.html.twig' with {back: '/moje-wyjazdy', odometer: odo.przebieg|default(''), fuelLevel: odo.paliwo|default('')} %}
+                {% elseif trip.status == 'planowany' %}
+                    <div class="small text-muted"><i class="bi bi-hourglass-split me-1"></i>Czeka na zatwierdzenie przez dyspozytora.</div>
+                {% endif %}
+                <div class="d-flex gap-3 small mt-auto">
+                    <a href="/wyjazdy/{{ trip.id }}/rozkaz-wyjazdu" target="_blank"><i class="bi bi-file-earmark-text me-1"></i>Rozkaz</a>
+                    <a href="/wyjazdy/{{ trip.id }}/karta-drogowa" target="_blank"><i class="bi bi-file-earmark-ruled me-1"></i>Karta drogowa</a>
+                </div>
+            </div>
+        </div>
+    {% else %}
+        <div class="col-12"><div class="lt-card lt-empty"><i class="bi bi-cup-hot"></i>Nie masz zaplanowanych wyjazdów.</div></div>
+    {% endfor %}
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-7">
+        <div class="lt-card">
+            <div class="lt-card-header"><h2><i class="bi bi-clock-history me-2 text-secondary"></i>Ostatnio zakończone</h2></div>
+            <div class="lt-card-body pt-2">
+                {% for trip in history %}
+                    <div class="lt-alert-item">
+                        <div class="dr-date" style="width:48px"><div class="d" style="font-size:1.1rem">{{ trip.data_od|date('j') }}</div><div class="w">{{ ui.month_name(trip.data_od, true)|slice(0, 3) }}</div></div>
+                        <div class="flex-grow-1 min-w-0"><a href="/wyjazdy/{{ trip.id }}" class="fw-semibold text-body text-decoration-none">{{ trip.cel }}</a><div class="small text-muted">{{ trip.pojazd_nr }}{% if trip.licznik_stop is not null and trip.licznik_start is not null %} · {{ (trip.licznik_stop - trip.licznik_start)|number_format(0, ',', ' ') }} km{% endif %}</div></div>
+                    </div>
+                {% else %}
+                    <div class="text-muted small">Brak zakończonych wyjazdów.</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-5">
+        <div class="lt-card">
+            <div class="lt-card-header"><h2><i class="bi bi-person-vcard me-2 text-secondary"></i>Moje uprawnienia</h2></div>
+            <div class="lt-card-body pt-2">
+                <div class="small mb-2">Kategorie: <strong>{{ driver.kategorie ?: '—' }}</strong></div>
+                {% for term in terms %}
+                    <div class="lt-alert-item">
+                        {% if term.date %}{{ ui.days_badge(term.days, term.level) }}{% else %}<div class="lt-days" style="background:#eef0ea;color:#9aa08f">—</div>{% endif %}
+                        <div><div class="fw-semibold">{{ term.label }}</div><div class="small text-muted">{{ term.date ? 'ważne do ' ~ term.date|date('d.m.Y') : 'nie wpisano' }}</div></div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,77 @@
+{% extends 'app/print/_layout.html.twig' %}
+{% import 'app/_macros.html.twig' as ui %}
+{% block pages %}
+{% set v = s.vehicle %}
+<div class="print-page">
+    {% include 'app/print/_head.html.twig' %}
+    <h1>KARTA PRACY POJAZDU</h1>
+    <div class="subtitle">i miesięczne rozliczenie paliwa za {{ ui.month_name(s.month) }} {{ s.month|date('Y') }} r.</div>
+
+    <table class="print-table kv4 mb-3">
+        <tr>
+            <td class="lbl">Pojazd</td><td>{{ v.marka }} {{ v.model }} ({{ v.rodzaj == 'wojskowy' ? 'wojskowy' : 'cywilny' }})</td>
+            <td class="lbl">Nr rej. / ewid.</td><td>{{ v.nr_rejestracyjny }}{{ v.nr_ewidencyjny ? ' / ' ~ v.nr_ewidencyjny : '' }}</td>
+        </tr>
+        <tr>
+            <td class="lbl">Rodzaj paliwa</td><td>{{ v.rodzaj_paliwa }}</td>
+            <td class="lbl">Norma zużycia</td><td>{{ s.norm ? s.norm ~ ' l/100 km' : 'nie ustalono' }}</td>
+        </tr>
+    </table>
+
+    <h2>Wyjazdy w miesiącu</h2>
+    <table class="print-table mb-3">
+        <tr><th style="width:4%">Lp.</th><th style="width:11%">Data</th><th style="width:11%">Nr</th><th>Cel / trasa</th><th style="width:16%">Kierowca</th><th style="width:10%">Licznik od</th><th style="width:10%">Licznik do</th><th style="width:7%">km</th><th style="width:8%">Norma [l]</th></tr>
+        {% for row in s.trips %}
+            {% set t = row.trip %}
+            <tr>
+                <td class="num">{{ loop.index }}</td>
+                <td>{{ t.data_od|date('d.m.Y') }}</td>
+                <td>{{ t.numer }}</td>
+                <td>{{ t.cel }}{{ t.miejsce_docelowe ? ' (' ~ t.miejsce_docelowe ~ ')' : '' }}</td>
+                <td>{{ [t.kierowca_stopien, t.kierowca_nazwisko]|filter(x => x)|join(' ') }}</td>
+                <td class="num">{{ t.licznik_start }}</td>
+                <td class="num">{{ t.licznik_stop }}</td>
+                <td class="num">{{ row.km }}</td>
+                <td class="num">{{ row.norm_l is not null ? row.norm_l|number_format(2, ',', '') : '' }}</td>
+            </tr>
+        {% else %}
+            <tr><td colspan="9" class="text-center">Brak zakończonych wyjazdów w tym miesiącu.</td></tr>
+        {% endfor %}
+        <tr><th colspan="7" style="text-align:right">Razem</th><th class="num">{{ s.total_km }}</th><th class="num">{{ s.norm_usage|number_format(2, ',', '') }}</th></tr>
+    </table>
+
+    <h2>Pobrane paliwo</h2>
+    <table class="print-table mb-3">
+        <tr><th style="width:4%">Lp.</th><th>Data</th><th>Źródło</th><th>Nr dokumentu</th><th>Ilość [l]</th></tr>
+        {% for f in s.fuel %}
+            <tr><td class="num">{{ loop.index }}</td><td>{{ f.data|date('d.m.Y H:i') }}</td><td>{{ sources[f.zrodlo]|default(f.zrodlo) }}</td><td>{{ f.nr_dokumentu }}</td><td class="num">{{ f.ilosc|number_format(2, ',', '') }}</td></tr>
+        {% else %}
+            <tr><td colspan="5" class="text-center">Brak tankowań.</td></tr>
+        {% endfor %}
+        <tr><th colspan="4" style="text-align:right">Razem</th><th class="num">{{ s.refuelled|number_format(2, ',', '') }}</th></tr>
+    </table>
+
+    <h2>Rozliczenie</h2>
+    <table class="print-table" style="width: 70%">
+        <tr><td class="lbl">Stan paliwa na początek miesiąca</td><td class="num">{{ s.start_level is not null ? s.start_level|number_format(2, ',', '') : '…………' }}</td></tr>
+        <tr><td class="lbl">Pobrano w miesiącu</td><td class="num">{{ s.refuelled|number_format(2, ',', '') }}</td></tr>
+        <tr><td class="lbl">Stan paliwa na koniec miesiąca</td><td class="num">{{ s.end_level is not null ? s.end_level|number_format(2, ',', '') : '…………' }}</td></tr>
+        <tr><td class="lbl"><strong>Zużycie rzeczywiste</strong></td><td class="num"><strong>{{ s.actual_usage is not null ? s.actual_usage|number_format(2, ',', '') : '…………' }}</strong></td></tr>
+        <tr><td class="lbl"><strong>Zużycie wg normy</strong> ({{ s.total_km }} km × {{ s.norm }} l/100 km)</td><td class="num"><strong>{{ s.norm_usage|number_format(2, ',', '') }}</strong></td></tr>
+        <tr>
+            <td class="lbl">{{ s.difference is not null and s.difference < 0 ? 'Przekroczenie normy' : 'Oszczędność' }}</td>
+            <td class="num">{{ s.difference is not null ? s.difference|abs|number_format(2, ',', '') : '…………' }}</td>
+        </tr>
+        {% if s.limit_km %}
+            <tr><td class="lbl">Limit km / wykorzystanie</td><td class="num">{{ s.limit_km }} km / {{ (s.total_km / s.limit_km * 100)|round }}%</td></tr>
+        {% endif %}
+    </table>
+
+    <div class="print-signs">
+        <div>Sporządził</div>
+        <div>{{ unit.szef_sluzby ?: 'Szef służby transportowej' }}</div>
+        <div>ZATWIERDZAM<br>{{ unit.dowodca ?: 'Dowódca / kierownik' }}</div>
+    </div>
+    {% include 'app/print/_foot.html.twig' %}
+</div>
+{% endblock %}

@@ -1,0 +1,9 @@
+{% extends 'app/layout.html.twig' %}
+{% block content %}
+<div class="lt-card lt-empty">
+    <i class="bi bi-tools"></i>
+    <h2 class="h5">Moduły floty nie są jeszcze zainstalowane</h2>
+    <p>Administrator musi uruchomić instalację modułów w panelu administracyjnym.</p>
+    {% if ctx.admin %}<a href="/cms/install" class="btn btn-primary">Przejdź do instalacji</a>{% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,20 @@
+{% import 'app/_macros.html.twig' as ui %}
+<div class="lt-trip">
+    <div class="lt-trip-time">
+        <strong>{{ trip.data_od|date('H:i') }}</strong>
+        <small>{{ trip.data_od|date('d.m') }}{% if trip.data_do|date('Y-m-d') != trip.data_od|date('Y-m-d') %} – {{ trip.data_do|date('d.m') }}{% else %} – {{ trip.data_do|date('H:i') }}{% endif %}</small>
+    </div>
+    <div class="lt-trip-line" data-status="{{ trip.status|default('planowany') }}"></div>
+    <div class="flex-grow-1 min-w-0">
+        <div class="d-flex align-items-start justify-content-between gap-2">
+            <a href="/wyjazdy/{{ trip.id }}" class="fw-bold text-decoration-none text-body">{{ trip.cel }}</a>
+            {{ ui.status(trip.status, ui.status_label(trip.status)) }}
+        </div>
+        <div class="lt-meta mt-1">
+            {% if trip.miejsce_docelowe %}<span><i class="bi bi-geo-alt"></i>{{ trip.miejsce_wyjazdu ? trip.miejsce_wyjazdu ~ ' → ' : '' }}{{ trip.miejsce_docelowe }}</span>{% endif %}
+            <span>{{ ui.plate(trip.pojazd_nr, trip.pojazd_rodzaj) }}</span>
+            <span><i class="bi bi-person"></i>{{ ui.driver_name(trip) }}</span>
+            {% if trip.numer %}<span class="text-muted">nr {{ trip.numer }}</span>{% endif %}
+        </div>
+    </div>
+</div>

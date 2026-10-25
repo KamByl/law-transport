@@ -1,0 +1,150 @@
+{% extends 'app/layout.html.twig' %}
+{% import 'app/_macros.html.twig' as ui %}
+
+{% block content %}
+{% set hour = 'now'|date('G') %}
+<div class="lt-hero mb-4">
+    <div>
+        <h2>{{ hour < 12 ? 'Dzień dobry' : (hour < 18 ? 'Witaj' : 'Dobry wieczór') }}{{ ctx.user.firstName ? ', ' ~ ctx.user.firstName : '' }}</h2>
+        <p>{{ ui.weekday('now')|capitalize }}, {{ 'now'|date('j') }} {{ ui.month_name('now', true) }} {{ 'now'|date('Y') }}. W trasie: <strong class="text-white">{{ running|length }}</strong>, do zatwierdzenia w tym tygodniu: <strong class="text-white">{{ toApprove|length }}</strong>.</p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        <a href="/planer" class="btn btn-sand"><i class="bi bi-calendar3-range me-1"></i>Otwórz planer</a>
+        {% if ctx.can.tankowania.create %}<a href="/paliwo" class="btn btn-outline-light"><i class="bi bi-fuel-pump me-1"></i>Tankowanie</a>{% endif %}
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-6 col-xl-3">
+        <div class="lt-card lt-kpi">
+            <div class="lt-kpi-icon"><i class="bi bi-truck"></i></div>
+            <div>
+                <div class="lt-kpi-value">{{ vehicleStates.sprawny }}<span class="fs-6 text-muted fw-semibold"> / {{ vehicleCount }}</span></div>
+                <div class="lt-kpi-label">pojazdów dostępnych</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-xl-3">
+        <div class="lt-card lt-kpi">
+            <div class="lt-kpi-icon" style="background:#fbecc9;color:#7d5408"><i class="bi bi-signpost-2"></i></div>
+            <div>
+                <div class="lt-kpi-value">{{ running|length }}</div>
+                <div class="lt-kpi-label">wyjazdów w trasie</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-xl-3">
+        <div class="lt-card lt-kpi">
+            <div class="lt-kpi-icon" style="background:#e2ecd9"><i class="bi bi-people"></i></div>
+            <div>
+                <div class="lt-kpi-value">{{ availableDrivers }}<span class="fs-6 text-muted fw-semibold"> / {{ driverCount }}</span></div>
+                <div class="lt-kpi-label">kierowców wolnych teraz</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-xl-3">
+        <div class="lt-card lt-kpi">
+            <div class="lt-kpi-icon" style="background:#dfe6ee;color:#2f4a63"><i class="bi bi-speedometer2"></i></div>
+            <div>
+                <div class="lt-kpi-value">{{ kmMonth|number_format(0, ',', ' ') }}</div>
+                <div class="lt-kpi-label">km w {{ ui.month_name('now', false) }} (rozliczone)</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-xl-8">
+        <div class="lt-card mb-3">
+            <div class="lt-card-header">
+                <h2><i class="bi bi-calendar-week me-2 text-secondary"></i>Ten tydzień</h2>
+                <span class="text-muted small">{{ weekTrips }} wyjazdów</span>
+            </div>
+            <div class="lt-card-body">
+                <div class="lt-week">
+                    {% for key, day in weekDays %}
+                        <a href="/planer?od={{ key }}&dni=1" class="lt-week-day text-decoration-none{{ key == 'now'|date('Y-m-d') ? ' is-today' : '' }}">
+                            <div class="d">{{ ui.weekday(day.date, true) }}</div>
+                            <div class="n">{{ day.date|date('j') }}</div>
+                            <div class="c">{{ day.count }} {{ day.count == 1 ? 'wyjazd' : (day.count in [2,3,4] ? 'wyjazdy' : 'wyjazdów') }}</div>
+                        </a>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="lt-card">
+            <div class="lt-card-header">
+                <h2><i class="bi bi-clock-history me-2 text-secondary"></i>Dziś i jutro</h2>
+                <a href="/wyjazdy" class="small">Wszystkie wyjazdy <i class="bi bi-arrow-right"></i></a>
+            </div>
+            <div class="lt-card-body pt-2">
+                {% for trip in upcoming %}
+                    {% include 'app/_trip_row.html.twig' %}
+                {% else %}
+                    <div class="lt-empty"><i class="bi bi-cup-hot"></i>Brak wyjazdów na dziś i jutro.</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-4">
+        <div class="lt-card mb-3">
+            <div class="lt-card-header"><h2><i class="bi bi-pie-chart me-2 text-secondary"></i>Stan floty</h2></div>
+            <div class="lt-card-body">
+                {% set total = max(vehicleCount, 1) %}
+                <div class="lt-bar mb-3">
+                    <span style="width: {{ vehicleStates.sprawny / total * 100 }}%; background: var(--st-zatwierdzony)"></span>
+                    <span style="width: {{ vehicleStates.w_trasie / total * 100 }}%; background: var(--st-w_realizacji)"></span>
+                    <span style="width: {{ vehicleStates.w_obsludze / total * 100 }}%; background: var(--st-anulowany)"></span>
+                </div>
+                <div class="d-flex justify-content-between small">
+                    <span><span class="lt-dot is-ok me-1"></span>Dostępne <strong>{{ vehicleStates.sprawny }}</strong></span>
+                    <span><span class="lt-dot is-busy me-1"></span>W trasie <strong>{{ vehicleStates.w_trasie }}</strong></span>
+                    <span><span class="lt-dot is-off me-1"></span>Obsługa <strong>{{ vehicleStates.w_obsludze }}</strong></span>
+                </div>
+            </div>
+        </div>
+
+        {% if toApprove or unassigned %}
+        <div class="lt-card mb-3">
+            <div class="lt-card-header"><h2><i class="bi bi-ui-checks me-2 text-secondary"></i>Do zrobienia</h2></div>
+            <div class="lt-card-body">
+                {% if unassigned %}
+                    <a href="/planer" class="d-flex justify-content-between align-items-center text-decoration-none text-body py-2 border-bottom">
+                        <span><i class="bi bi-person-x me-2 text-warning"></i>Wyjazdy bez pojazdu lub kierowcy</span>
+                        <span class="badge rounded-pill text-bg-warning">{{ unassigned|length }}</span>
+                    </a>
+                {% endif %}
+                {% if toApprove %}
+                    <a href="/wyjazdy?status=planowany" class="d-flex justify-content-between align-items-center text-decoration-none text-body py-2">
+                        <span><i class="bi bi-patch-check me-2 text-primary"></i>Wyjazdy czekające na zatwierdzenie</span>
+                        <span class="badge rounded-pill text-bg-secondary">{{ toApprove|length }}</span>
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="lt-card">
+            <div class="lt-card-header">
+                <h2><i class="bi bi-alarm me-2 text-secondary"></i>Zbliżające się terminy</h2>
+                <a href="/terminy" class="small">Wszystkie</a>
+            </div>
+            <div class="lt-card-body pt-2">
+                {% for item in alerts %}
+                    <div class="lt-alert-item">
+                        {{ ui.days_badge(item.days, item.level) }}
+                        <div class="min-w-0">
+                            <a class="fw-semibold text-body text-decoration-none" href="/{{ item.type == 'pojazd' ? 'pojazdy' : 'kierowcy' }}/{{ item.id }}">{{ item.name }}</a>
+                            <div class="small text-muted">{{ item.label }} · {{ item.date|date('d.m.Y') }}</div>
+                        </div>
+                    </div>
+                {% else %}
+                    <div class="lt-empty py-3"><i class="bi bi-check2-all"></i>Wszystkie terminy w porządku.</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

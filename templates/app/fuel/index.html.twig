@@ -1,0 +1,92 @@
+{% extends 'app/layout.html.twig' %}
+{% import 'app/_macros.html.twig' as ui %}
+{% block topbar_actions %}{% endblock %}
+{% block content %}
+{% set prev = monthDate|date_modify('-1 month')|date('Y-m') %}
+{% set next = monthDate|date_modify('+1 month')|date('Y-m') %}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <div class="btn-group">
+        <a class="btn btn-outline-secondary" href="/paliwo?miesiac={{ prev }}{{ vehicleId ? '&pojazd=' ~ vehicleId : '' }}"><i class="bi bi-chevron-left"></i></a>
+        <span class="btn btn-outline-secondary disabled text-body fw-semibold" style="min-width: 160px">{{ ui.month_name(monthDate)|capitalize }} {{ monthDate|date('Y') }}</span>
+        <a class="btn btn-outline-secondary" href="/paliwo?miesiac={{ next }}{{ vehicleId ? '&pojazd=' ~ vehicleId : '' }}"><i class="bi bi-chevron-right"></i></a>
+    </div>
+    <form method="get" class="d-flex gap-2">
+        <input type="hidden" name="miesiac" value="{{ month }}">
+        <select name="pojazd" class="form-select" onchange="this.form.submit()">
+            <option value="">Wszystkie pojazdy</option>
+            {% for v in vehicles %}<option value="{{ v.id }}"{{ vehicleId == v.id ? ' selected' : '' }}>{{ v.nr_rejestracyjny }} {{ v.marka }} {{ v.model }}</option>{% endfor %}
+        </select>
+    </form>
+    {% if vehicleId %}
+        <a href="/paliwo/rozliczenie/{{ vehicleId }}?miesiac={{ month }}" target="_blank" class="btn btn-outline-primary"><i class="bi bi-printer me-1"></i>Karta pracy i rozliczenie paliwa</a>
+    {% endif %}
+</div>
+
+<div class="row g-3">
+    <div class="col-xl-8">
+        <div class="lt-card mb-3">
+            <div class="lt-card-header"><h2><i class="bi bi-bar-chart me-2 text-secondary"></i>Pobrane paliwo w miesiącu</h2><span class="fw-bold">{{ total|number_format(1, ',', ' ') }} l</span></div>
+            <div class="lt-card-body">
+                {% set maxL = byVehicle ? max(byVehicle|map(v => v.litry)) : 1 %}
+                {% for id, v in byVehicle %}
+                    <div class="d-flex align-items-center gap-3 mb-2">
+                        <a href="/paliwo?miesiac={{ month }}&pojazd={{ id }}" class="text-decoration-none" style="width: 120px">{{ ui.plate(v.nr, '') }}</a>
+                        <div class="flex-grow-1 lt-bar" style="height: 14px"><span style="width: {{ v.litry / max(maxL, 1) * 100 }}%; background: var(--lt-olive-500)"></span></div>
+                        <div class="text-end small" style="width: 130px"><strong>{{ v.litry|number_format(1, ',', ' ') }} l</strong> · {{ v.ile }}×</div>
+                        <a href="/paliwo/rozliczenie/{{ id }}?miesiac={{ month }}" target="_blank" class="btn btn-sm btn-link" title="Karta pracy i rozliczenie"><i class="bi bi-printer"></i></a>
+                    </div>
+                {% else %}
+                    <div class="lt-empty py-3"><i class="bi bi-fuel-pump"></i>Brak tankowań w tym miesiącu.</div>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="lt-card">
+            <div class="lt-card-header"><h2>Tankowania</h2></div>
+            <div class="lt-card-body">
+                {% if entries %}
+                <div class="table-responsive">
+                <table class="table lt-table">
+                    <thead><tr><th>Data</th><th>Pojazd</th><th class="text-end">Litry</th><th>Źródło</th><th>Dokument</th><th>Kierowca</th><th>Wyjazd</th></tr></thead>
+                    <tbody>
+                    {% for e in entries %}
+                        <tr>
+                            <td class="text-nowrap">{{ e.data|date('d.m.Y H:i') }}</td>
+                            <td>{{ ui.plate(e.pojazd_nr, '') }}</td>
+                            <td class="text-end fw-semibold">{{ e.ilosc|number_format(1, ',', ' ') }}</td>
+                            <td class="small">{{ sources[e.zrodlo]|default(e.zrodlo) }}</td>
+                            <td class="small">{{ e.nr_dokumentu }}</td>
+                            <td class="small">{{ e.kierowca_nazwisko }}</td>
+                            <td class="small">{% if e.wyjazd %}<a href="/wyjazdy/{{ e.wyjazd }}">{{ e.wyjazd_numer ?: '#' ~ e.wyjazd }}</a>{% endif %}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                </div>
+                {% else %}
+                    <div class="text-muted small">Brak wpisów.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-4">
+        {% if ctx.can.tankowania.create %}
+        <form method="post" class="lt-card" novalidate>
+            <div class="lt-card-header"><h2><i class="bi bi-plus-circle me-2 text-secondary"></i>Dodaj tankowanie</h2></div>
+            <div class="lt-card-body">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                {% if errors %}<div class="alert alert-danger py-2 small">{{ errors|join(' ') }}</div>{% endif %}
+                {% for section in sections %}
+                    <div class="row g-2">
+                        {% for field in section.fields %}
+                            {{ ui.field(field|merge({help: ''}), values[field.name]|default(null), errors[field.name]|default(null)) }}
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+                <button class="btn btn-primary w-100 mt-3"><i class="bi bi-check2 me-1"></i>Zapisz tankowanie</button>
+                <p class="small text-muted mt-2 mb-0">Tankowanie w trakcie wyjazdu kierowca wpisuje sam przy zakończeniu jazdy.</p>
+            </div>
+        </form>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

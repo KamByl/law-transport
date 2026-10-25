@@ -42,10 +42,21 @@ return [
     ],
     'twig' => [
         'cache_enabled' => true,
+        'auto_reload' => true,
         'cache_dir' => __DIR__ . '/../var/cache/twig',
     ],
     'menu' => [
         'module_groups' => [
+            'fleet_group' => [
+                'label' => 'Flota',
+                'modules' => [
+                    'pojazdy',
+                    'kierowcy',
+                    'wyjazdy',
+                    'tankowania',
+                    'jednostka',
+                ],
+            ],
             'content' => [
                 'label' => 'Pliki',
                 'modules' => [

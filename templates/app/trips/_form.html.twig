@@ -1,0 +1,22 @@
+{% import 'app/_macros.html.twig' as ui %}
+<form method="post" action="{{ trip ? '/wyjazdy/' ~ trip.id ~ '/edycja' : '/wyjazdy/nowy' }}"{% if partial %} hx-post="{{ trip ? '/wyjazdy/' ~ trip.id ~ '/edycja' : '/wyjazdy/nowy' }}" hx-swap="outerHTML"{% endif %} novalidate>
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+    {% if partial %}<input type="hidden" name="panel" value="1">{% endif %}
+    {% if return %}<input type="hidden" name="powrot" value="{{ return }}">{% endif %}
+    {% if errors %}
+        <div class="alert alert-danger">
+            <strong><i class="bi bi-x-octagon me-1"></i>Nie zapisano wyjazdu.</strong>
+            <ul class="mb-0 mt-1 ps-3">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+        </div>
+    {% endif %}
+    {{ ui.form_sections(sections, values, errors) }}
+    <div class="d-flex gap-2 mt-3">
+        <button type="submit" class="btn btn-primary"><i class="bi bi-check2 me-1"></i>{{ trip ? 'Zapisz zmiany' : 'Utwórz wyjazd' }}</button>
+        {% if partial %}
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="offcanvas">Anuluj</button>
+        {% else %}
+            <a href="{{ return ?: (trip ? '/wyjazdy/' ~ trip.id : '/wyjazdy') }}" class="btn btn-outline-secondary">Anuluj</a>
+        {% endif %}
+    </div>
+    <p class="text-muted small mt-3 mb-0"><i class="bi bi-info-circle me-1"></i>Nowy wyjazd ma status „Planowany”. Zatwierdza go dyspozytor po przydzieleniu pojazdu i kierowcy. System nie pozwoli zająć tego samego pojazdu ani kierowcy dwa razy w tym samym czasie.</p>
+</form>

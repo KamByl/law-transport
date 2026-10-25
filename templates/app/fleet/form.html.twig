@@ -1,0 +1,25 @@
+{% extends 'app/layout.html.twig' %}
+{% import 'app/_macros.html.twig' as ui %}
+{% block topbar_actions %}{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-xl-9">
+        <form method="post" class="lt-card" novalidate>
+            <div class="lt-card-body p-4">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                {% if errors %}
+                    <div class="alert alert-danger"><strong>Popraw zaznaczone pola.</strong></div>
+                {% endif %}
+                {{ ui.form_sections(sections, values, errors) }}
+                {% if module == 'kierowcy' %}
+                    <div class="alert alert-light border small mt-3 mb-0"><i class="bi bi-info-circle me-1"></i>Aby kierowca widział swoje wyjazdy, administrator zakłada mu konto (grupa <strong>Kierowcy</strong>) z tym samym adresem e-mail.</div>
+                {% endif %}
+                <div class="d-flex gap-2 mt-4">
+                    <button class="btn btn-primary"><i class="bi bi-check2 me-1"></i>Zapisz</button>
+                    <a href="{{ cancel }}" class="btn btn-outline-secondary">Anuluj</a>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

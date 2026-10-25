@@ -1,0 +1,109 @@
+{% extends 'layout/base.html.twig' %}
+{% import 'app/_macros.html.twig' as ui %}
+{% set body_class = 'app-body' %}
+
+{% block stylesheets %}
+    <link href="/assets/css/front.css" rel="stylesheet">
+{% endblock %}
+
+{% block body %}
+{% set user = ctx.user %}
+{% set displayName = ctx.driver ? ui.person(ctx.driver) : (user ? (user.firstName ~ ' ' ~ user.lastName)|trim : '') %}
+{% set initials = ctx.driver ? (ctx.driver.imie|first ~ ctx.driver.nazwisko|first)|upper : (user ? (user.firstName|first ~ user.lastName|first)|upper : '') %}
+{% set roleLabel = ctx.admin ? 'Administrator' : (ctx.manager ? 'Dyspozytor' : (ctx.viewer ? 'Podgląd' : (ctx.driver ? 'Kierowca' : 'Użytkownik'))) %}
+{% set path = currentPath|split('?')|first %}
+<div class="lt-shell" hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>
+    <aside class="lt-sidebar offcanvas-lg offcanvas-start" tabindex="-1" id="ltSidebar" aria-label="Menu">
+        <div class="lt-sidebar-inner">
+            <a class="lt-brand" href="/">
+                {% include 'app/_emblem.html.twig' %}
+                <span>
+                    <span class="lt-brand-name d-block">LAW TRANSPORT</span>
+                    <span class="lt-brand-sub">{{ unit.nazwa|default('Grupa transportowa') }}</span>
+                </span>
+                <button type="button" class="btn-close btn-close-white ms-auto d-lg-none" data-bs-dismiss="offcanvas" data-bs-target="#ltSidebar" aria-label="Zamknij"></button>
+            </a>
+            <div class="lt-nav-label">Menu</div>
+            <nav class="lt-nav d-flex flex-column gap-1">
+                {% for item in nav %}
+                    {% set active = item.href == '/' ? path == '/' : (path starts with item.href) %}
+                    <a href="{{ item.href }}" class="{{ active ? 'active' : '' }}"><i class="bi {{ item.icon }}"></i>{{ item.label }}</a>
+                {% endfor %}
+            </nav>
+            {% if ctx.admin %}
+                <div class="lt-nav-label">Administracja</div>
+                <nav class="lt-nav d-flex flex-column gap-1">
+                    <a href="/cms"><i class="bi bi-gear-wide-connected"></i>Panel administracyjny</a>
+                </nav>
+            {% endif %}
+            <div class="lt-sidebar-foot">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <span class="lt-avatar">{{ initials ?: '?' }}</span>
+                    <div class="lh-sm">
+                        <div class="text-white fw-semibold">{{ displayName }}</div>
+                        <div>{{ roleLabel }}</div>
+                    </div>
+                </div>
+                <a href="/wyloguj"><i class="bi bi-box-arrow-right me-1"></i>Wyloguj</a>
+            </div>
+        </div>
+    </aside>
+
+    <div class="lt-main">
+        {% if impersonating %}
+            <form method="post" action="/cms/users/impersonate/stop" class="lt-impersonation d-flex align-items-center gap-3 flex-wrap">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <span><i class="bi bi-incognito me-1"></i>Oglądasz system jako <strong>{{ displayName }}</strong>{% if impersonator %} (zalogowany: {{ impersonator.email }}){% endif %}.</span>
+                <button class="btn btn-sm btn-dark">Wróć do swojego konta</button>
+            </form>
+        {% endif %}
+        <header class="lt-topbar">
+            <button class="btn btn-outline-secondary btn-sm d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#ltSidebar" aria-controls="ltSidebar" aria-label="Menu"><i class="bi bi-list"></i></button>
+            <h1>{% block page_title %}{{ title|default('LAW Transport') }}{% endblock %}</h1>
+            <span class="lt-clock d-none d-md-inline" data-clock>{{ ui.weekday('now') }}, {{ 'now'|date('d.m.Y') }}</span>
+            <div class="ms-auto d-flex align-items-center gap-2">
+                {% block topbar_actions %}
+                    {% if ctx.can.wyjazdy.create|default(false) %}
+                        <a href="/wyjazdy/nowy" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg me-1"></i><span class="d-none d-sm-inline">Nowy wyjazd</span></a>
+                    {% endif %}
+                {% endblock %}
+                <div class="dropdown">
+                    <a href="#" class="lt-user" data-bs-toggle="dropdown" aria-expanded="false">
+                        <span class="lt-avatar">{{ initials ?: '?' }}</span>
+                    </a>
+                    <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                        <li><h6 class="dropdown-header">{{ displayName }}<br><small class="text-muted">{{ roleLabel }}</small></h6></li>
+                        {% if ctx.driver %}<li><a class="dropdown-item" href="/moje-wyjazdy"><i class="bi bi-person-badge me-2"></i>Moje wyjazdy</a></li>{% endif %}
+                        {% if ctx.admin %}<li><a class="dropdown-item" href="/cms"><i class="bi bi-gear me-2"></i>Panel administracyjny</a></li>{% endif %}
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="/wyloguj"><i class="bi bi-box-arrow-right me-2"></i>Wyloguj</a></li>
+                    </ul>
+                </div>
+            </div>
+        </header>
+        <main class="lt-content">
+            {% for flash in flashes %}
+                <div class="alert alert-{{ flash.type }} alert-dismissible fade show" role="alert">
+                    {{ flash.message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Zamknij"></button>
+                </div>
+            {% endfor %}
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</div>
+
+<nav class="lt-bottom-nav">
+    {% for item in nav|slice(0, 5) %}
+        {% set active = item.href == '/' ? path == '/' : (path starts with item.href) %}
+        <a href="{{ item.href }}" class="{{ active ? 'active' : '' }}"><i class="bi {{ item.icon }}"></i>{{ item.label|split(' ')|first }}</a>
+    {% endfor %}
+</nav>
+<div class="lt-toast-stack" id="ltToasts" aria-live="polite"></div>
+{% endblock %}
+
+{% block javascripts %}
+    <script src="/assets/vendor/htmx/htmx.min.js"></script>
+    <script src="/assets/js/app.js"></script>
+    {% block page_scripts %}{% endblock %}
+{% endblock %}

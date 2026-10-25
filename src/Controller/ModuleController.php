@@ -5092,6 +5092,10 @@ class ModuleController extends BaseController
         }
 
         $filterType = strtolower((string) ($filterConfig['type'] ?? ''));
+        if (in_array($filterType, ['date', 'datetime'], true)) {
+            // Filtr zakresu dat nie używa listy opcji, a porównanie DATE <> '' w MySQL (tryb strict) kończy się błędem.
+            return [];
+        }
         if ($this->isBooleanFilterType($filterType)) {
             return ['0' => 'Nie', '1' => 'Tak'];
         }
@@ -5101,7 +5105,12 @@ class ModuleController extends BaseController
             ->from($table)
             ->where($filterName . ' IS NOT NULL');
 
-        $queryBuilder->andWhere($filterName . " <> ''");
+        // Pusty napis odrzucamy tylko w kolumnach tekstowych; dla liczb i relacji MySQL zgłasza niepoprawną wartość.
+        $filterField = $filterConfig['field'] ?? null;
+        $fieldType = is_array($filterField) ? strtolower((string) ($filterField['type'] ?? '')) : '';
+        if ($filterType !== 'relation' && !in_array($fieldType, ['relation', 'number', 'decimal', 'date', 'datetime', 'checkbox'], true)) {
+            $queryBuilder->andWhere($filterName . " <> ''");
+        }
 
         $rows = $queryBuilder
             ->orderBy($filterName, 'ASC')

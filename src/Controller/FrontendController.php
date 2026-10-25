@@ -7,7 +7,6 @@ use App\Service\FtpMediaStorage;
 use App\Service\ModuleDefinitionLoader;
 use App\Service\SystemSettingsProvider;
 use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\JsonResponse;
 
@@ -27,11 +26,6 @@ class FrontendController extends BaseController
         return new Response($content, Response::HTTP_OK, [
             'Content-Type' => 'application/json; charset=utf-8',
         ]);
-    }
-
-    public function home(Request $request): Response
-    {
-        return new RedirectResponse('/cms');
     }
 
     public function downloadPrettyFile(Request $request, array $parameters = []): Response
